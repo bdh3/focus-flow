@@ -147,10 +147,13 @@ class SchedulerViewModel(
         scheduleRepository.getAllSchedules() // 월간 뷰용 전체 일정 (요구사항 1번)
     ) { params ->
         val state = params[0] as? SchedulerUiState ?: SchedulerUiState()
+        @Suppress("UNCHECKED_CAST")
         val tasks = params[1] as? List<Task> ?: emptyList()
         val vibration = params[2] as? Boolean ?: true
         val alarmInterval = params[3] as? Int ?: 15
+        @Suppress("UNCHECKED_CAST")
         val dailySchedules = params[4] as? List<ScheduleBlock> ?: emptyList()
+        @Suppress("UNCHECKED_CAST")
         val allSchedules = params[5] as? List<ScheduleBlock> ?: emptyList()
 
         state.copy(

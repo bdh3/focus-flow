@@ -23,10 +23,9 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            // 프로젝트 루트에 있는 debug.keystore를 사용하여 서명 고정 (업데이트 충돌 방지)
-            val keystoreFile = file("debug.keystore")
-            if (keystoreFile.exists()) {
+        val keystoreFile = file("debug.keystore")
+        if (keystoreFile.exists()) {
+            create("release") {
                 storeFile = keystoreFile
                 storePassword = "android"
                 keyAlias = "androiddebugkey"
@@ -38,14 +37,20 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            val releaseConfig = signingConfigs.findByName("release")
+            if (releaseConfig != null) {
+                signingConfig = releaseConfig
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
         debug {
-            signingConfig = signingConfigs.getByName("release")
+            val releaseConfig = signingConfigs.findByName("release")
+            if (releaseConfig != null) {
+                signingConfig = releaseConfig
+            }
         }
     }
 
