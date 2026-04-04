@@ -198,6 +198,24 @@ class SchedulerViewModel(
         _uiState.update { it.copy(selectedTaskId = taskId) }
     }
 
+    fun addTask(title: String) {
+        viewModelScope.launch {
+            repository.insertTask(Task(title = title))
+        }
+    }
+
+    fun deleteTask(task: Task) {
+        viewModelScope.launch {
+            repository.deleteTask(task)
+        }
+    }
+
+    fun toggleTaskCompletion(task: Task) {
+        viewModelScope.launch {
+            repository.updateTaskCompletion(task.id, !task.isCompleted)
+        }
+    }
+
     fun toggleTimer() {
         if (_uiState.value.isRunning) {
             pauseTimer()
@@ -287,6 +305,19 @@ class SchedulerViewModel(
     private fun pauseTimer() {
         timerJob?.cancel()
         _uiState.update { it.copy(isRunning = false) }
+    }
+
+    fun skipBlock() {
+        val state = _uiState.value
+        if (state.currentBlockIndex < state.timeBlocks.size - 1) {
+            val nextIndex = state.currentBlockIndex + 1
+            _uiState.update { it.copy(
+                currentBlockIndex = nextIndex,
+                remainingSeconds = state.timeBlocks[nextIndex].durationMinutes * 60
+            ) }
+        } else {
+            _uiState.update { it.copy(totalRemainingSeconds = 0) }
+        }
     }
 
     private fun onBlockFinished(
