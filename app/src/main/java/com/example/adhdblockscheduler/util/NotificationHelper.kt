@@ -1,5 +1,6 @@
 package com.example.adhdblockscheduler.util
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -11,7 +12,6 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import com.example.adhdblockscheduler.R
-import com.example.adhdblockscheduler.model.BlockType
 import com.example.adhdblockscheduler.ui.MainActivity
 
 class NotificationHelper(private val context: Context) {
@@ -21,7 +21,7 @@ class NotificationHelper(private val context: Context) {
     companion object {
         const val CHANNEL_ID = "block_scheduler_channel_v3"
         const val NOTIFICATION_ID = 1001
-        const val FINISHED_NOTIFICATION_ID = 1002 // 종료 알림을 위한 별도 ID (요구사항 4)
+        const val FINISHED_NOTIFICATION_ID = 1002
     }
 
     init {
@@ -30,67 +30,15 @@ class NotificationHelper(private val context: Context) {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = "Focus Flow Notifications"
-            val descriptionText = "작업 및 휴식 알림"
-            val importance = NotificationManager.IMPORTANCE_LOW
-            val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
-                description = descriptionText
-                enableVibration(false)
-                setSound(null, null)
-                setShowBadge(false)
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "Focus Flow 몰입 알림",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "작업 진행 상황 및 완료 알림을 제공합니다."
+                enableVibration(true)
             }
             notificationManager.createNotificationChannel(channel)
-        }
-    }
-
-    fun showSimpleNotification(
-        title: String,
-        message: String,
-        vibrationEnabled: Boolean
-    ) {
-        val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            context, 0, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle(title)
-            .setContentText(message)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setContentIntent(pendingIntent)
-            .setAutoCancel(true)
-
-        notificationManager.notify(NOTIFICATION_ID, builder.build())
-        
-        if (vibrationEnabled) {
-            vibrateAlarm()
-        }
-    }
-
-    fun vibrateAlarm() {
-        val pattern = longArrayOf(0, 500, 200, 500) // 2 heavy vibrations
-        vibrateWithPattern(pattern)
-    }
-
-    private fun vibrateWithPattern(pattern: LongArray) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vibratorManager =
-                context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-            val vibrator = vibratorManager.defaultVibrator
-            vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
-        } else {
-            @Suppress("DEPRECATION")
-            val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator.vibrate(pattern, -1)
-            }
         }
     }
 
@@ -100,11 +48,14 @@ class NotificationHelper(private val context: Context) {
         isFinished: Boolean,
         vibrationEnabled: Boolean
     ) {
-        val title = if (isFinished) "몰입 완료!" else "몰입 중"
-        val message = if (isFinished) "$taskTitle - 모든 세션을 마쳤습니다." else "$taskTitle - ${elapsedMinutes}분 경과"
+        val title = if (isFinished) "몰입 완료! 🎉" else "몰입 중"
+        val message = if (isFinished) 
+            "[$taskTitle] 모든 세션을 마쳤습니다." 
+        else 
+            "[$taskTitle] ${elapsedMinutes}분 경과되었습니다."
 
         val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP // CLEAR_TASK 제거하여 기존 앱 상태 유지 (요구사항 3)
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra("navigate_to", "timer")
         }
         val pendingIntent = PendingIntent.getActivity(
@@ -116,12 +67,12 @@ class NotificationHelper(private val context: Context) {
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
             .setContentText(message)
-            .setPriority(if (isFinished) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setDefaults(Notification.DEFAULT_ALL)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
 
-        // 종료 알림은 별도의 ID를 사용하여 서비스 종료 시에도 사라지지 않게 함 (요구사항 4)
-        val id = if (isFinished) FINISHED_NOTIFICATION_ID else NOTIFICATION_ID
+        val id = if (isFinished) FINISHED_NOTIFICATION_ID else (NOTIFICATION_ID + 1)
         notificationManager.notify(id, builder.build())
         
         if (vibrationEnabled) {
@@ -129,39 +80,42 @@ class NotificationHelper(private val context: Context) {
         }
     }
 
-    fun vibrateDeviceShort() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vibratorManager =
-                context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-            val vibrator = vibratorManager.defaultVibrator
-            vibrator.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE))
+    fun cancelForegroundNotification() {
+        notificationManager.cancel(NOTIFICATION_ID)
+    }
+
+    private fun vibrateDeviceShort() {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            vibratorManager.defaultVibrator
         } else {
             @Suppress("DEPRECATION")
-            val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator.vibrate(100)
-            }
+            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(300)
         }
     }
 
-    private fun vibrateDevice() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vibratorManager =
-                context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-            val vibrator = vibratorManager.defaultVibrator
-            vibrator.vibrate(VibrationEffect.createOneShot(500, VibrationEffect.DEFAULT_AMPLITUDE))
+    private fun vibrateAlarm() {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            vibratorManager.defaultVibrator
         } else {
             @Suppress("DEPRECATION")
-            val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator.vibrate(VibrationEffect.createOneShot(500, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator.vibrate(500)
-            }
+            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+
+        val pattern = longArrayOf(0, 500, 200, 500, 200, 800)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(pattern, -1)
         }
     }
 }

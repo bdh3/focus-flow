@@ -51,15 +51,24 @@ class TimerService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        startForeground(NotificationHelper.NOTIFICATION_ID, createNotification())
     }
 
-    private fun createNotification(): Notification {
+    private fun createForegroundNotification(): Notification {
+        val intent = Intent(this, com.example.adhdblockscheduler.ui.MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra("navigate_to", "timer")
+        }
+        val pendingIntent = android.app.PendingIntent.getActivity(
+            this, 0, intent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+
         return NotificationCompat.Builder(this, NotificationHelper.CHANNEL_ID)
             .setContentTitle("Focus Flow")
-            .setContentText("타이머 대기 중...")
+            .setContentText("몰입이 진행 중입니다: $taskTitle")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setOngoing(true)
+            .setContentIntent(pendingIntent)
             .build()
     }
 
@@ -84,8 +93,8 @@ class TimerService : Service() {
         _isRunning.value = true
         _totalRemainingSeconds.value = initialTotalRemaining
         
-        // 포그라운드 알림 즉시 업데이트 (요구사항 2: 작업명 포함)
-        updateNotification()
+        // 포그라운드 서비스 시작 (고정 알림 사용)
+        startForeground(NotificationHelper.NOTIFICATION_ID, createForegroundNotification())
 
         timerJob = serviceScope.launch {
             while (_totalRemainingSeconds.value > 0) {
@@ -96,6 +105,7 @@ class TimerService : Service() {
                 val intervalSeconds = alarmIntervalMinutes * 60
                 val newBlockIndex = sessionElapsedSeconds / intervalSeconds
                 
+                // 설정된 주기(15분 등)가 되었을 때만 팝업/진동 알림 발생
                 if (newBlockIndex != _currentBlockIndex.value && currentTotalRemaining > 0) {
                     val elapsedMinutes = (newBlockIndex) * alarmIntervalMinutes
                     onTransition(taskTitle, elapsedMinutes, false)
@@ -105,18 +115,18 @@ class TimerService : Service() {
                 _totalRemainingSeconds.value = currentTotalRemaining
                 _remainingSeconds.value = intervalSeconds - (sessionElapsedSeconds % intervalSeconds)
                 
-                // 매 초마다 알림 갱신 (요구사항 2: 남은 시간 실시간 표시)
-                updateNotification()
+                // 매 초마다 알림 갱신하던 로직 제거 (요구사항 1 준수)
             }
 
             _isRunning.value = false
             _totalRemainingSeconds.value = 0
             
-            // 세션 종료 알림 (요구사항 4: 버그 수정)
+            // 세션 종료 알림 (마지막 블록 완료 시 확실히 호출)
             onTransition(taskTitle, totalSecondsAtStart / 60, true)
 
+            delay(500L) // 알림 전달 시간 확보
             onFinished()
-            stopForeground(STOP_FOREGROUND_REMOVE) 
+            stopForeground(STOP_FOREGROUND_DETACH) 
             stopSelf()
         }
     }
@@ -131,35 +141,12 @@ class TimerService : Service() {
         _isRunning.value = false
         _totalRemainingSeconds.value = 0
         _currentBlockIndex.value = 0
+        
+        // 포그라운드 알림 취소
+        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.cancel(NotificationHelper.NOTIFICATION_ID)
+        
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
-    }
-
-    private fun updateNotification() {
-        val minutes = _totalRemainingSeconds.value / 60
-        val seconds = _totalRemainingSeconds.value % 60
-        val timeText = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
-        
-        // 알림 클릭 시 타이머로 이동하도록 인텐트 설정 (요구사항 3)
-        val intent = Intent(this, com.example.adhdblockscheduler.ui.MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra("navigate_to", "timer")
-        }
-        val pendingIntent = android.app.PendingIntent.getActivity(
-            this, 0, intent,
-            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notification = NotificationCompat.Builder(this, NotificationHelper.CHANNEL_ID)
-            .setContentTitle("몰입 중: $taskTitle") // 요구사항 2: 작업명 표시
-            .setContentText("남은 시간: $timeText")
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setOngoing(true)
-            .setContentIntent(pendingIntent) // 요구사항 3: 클릭 시 이동
-            .setOnlyAlertOnce(true) // 매초 소리/진동 방지
-            .build()
-        
-        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(NotificationHelper.NOTIFICATION_ID, notification)
     }
 }
