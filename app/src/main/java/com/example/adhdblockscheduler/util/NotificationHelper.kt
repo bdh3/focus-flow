@@ -85,14 +85,22 @@ class NotificationHelper(private val context: Context) {
             .setContentTitle(title)
             .setContentText(message)
             .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setDefaults(Notification.DEFAULT_ALL)
             .setContentIntent(pendingIntent)
             .setFullScreenIntent(pendingIntent, true) // 잠금화면에서도 팝업되도록
             .setAutoCancel(true)
 
+        // 진동 설정 강제 적용
+        if (vibrationEnabled) {
+            builder.setDefaults(Notification.DEFAULT_ALL)
+        } else {
+            builder.setDefaults(Notification.DEFAULT_SOUND or Notification.DEFAULT_LIGHTS)
+            builder.setVibrate(longArrayOf(0L)) // 시스템 진동 명시적 제거
+        }
+
         val id = if (isFinished) FINISHED_NOTIFICATION_ID else (NOTIFICATION_ID + 1)
         notificationManager.notify(id, builder.build())
         
+        // 커스텀 진동 로직도 설정을 따름
         if (vibrationEnabled) {
             if (isFinished) vibrateAlarm() else vibrateDeviceShort()
         }

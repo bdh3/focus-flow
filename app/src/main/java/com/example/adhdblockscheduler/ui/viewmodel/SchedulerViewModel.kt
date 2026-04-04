@@ -423,16 +423,17 @@ class SchedulerViewModel(
     }
 
     private fun onBlockTransition(taskTitle: String, elapsedMinutes: Int, isFinished: Boolean) {
+        val currentState = uiState.value // 결합된 최신 상태(설정값 포함) 참조
         notificationHelper.showBlockTransitionNotification(
             taskTitle = taskTitle,
             elapsedMinutes = elapsedMinutes,
             isFinished = isFinished,
-            vibrationEnabled = _uiState.value.vibrationEnabled
+            vibrationEnabled = currentState.vibrationEnabled
         )
         
         if (!isFinished) {
             viewModelScope.launch {
-                statsRepository.addFocusMinutes(_uiState.value.alarmIntervalMinutes)
+                statsRepository.addFocusMinutes(currentState.alarmIntervalMinutes)
             }
         }
     }
