@@ -45,8 +45,7 @@ class NotificationHelper(private val context: Context) {
     fun showSimpleNotification(
         title: String,
         message: String,
-        vibrationEnabled: Boolean,
-        isFocusEnd: Boolean = false
+        vibrationEnabled: Boolean
     ) {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -67,17 +66,12 @@ class NotificationHelper(private val context: Context) {
         notificationManager.notify(NOTIFICATION_ID, builder.build())
         
         if (vibrationEnabled) {
-            if (isFocusEnd) vibrateFocusEnd() else vibrateRestEnd()
+            vibrateAlarm()
         }
     }
 
-    fun vibrateFocusEnd() {
-        val pattern = longArrayOf(0, 500, 200, 500) // 0ms delay, 500ms vibe, 200ms pause, 500ms vibe
-        vibrateWithPattern(pattern)
-    }
-
-    fun vibrateRestEnd() {
-        val pattern = longArrayOf(0, 200, 100, 200, 100, 200) // Triple short
+    fun vibrateAlarm() {
+        val pattern = longArrayOf(0, 500, 200, 500) // 2 heavy vibrations
         vibrateWithPattern(pattern)
     }
 
@@ -100,26 +94,13 @@ class NotificationHelper(private val context: Context) {
     }
 
     fun showBlockTransitionNotification(
-        finishedType: BlockType,
-        nextType: BlockType?,
+        taskTitle: String,
+        elapsedMinutes: Int,
+        isFinished: Boolean,
         vibrationEnabled: Boolean
     ) {
-        val title: String
-        val message: String
-        val isMajorTransition = nextType == null || finishedType != nextType
-
-        if (isMajorTransition) {
-            title = if (finishedType == BlockType.FOCUS) "집중 시간 종료!" else "휴식 시간 종료!"
-            message = if (finishedType == BlockType.FOCUS) {
-                if (nextType == BlockType.REST) "수고하셨습니다. 이제 휴식을 취하세요." else "모든 세션이 종료되었습니다!"
-            } else {
-                "충분히 쉬셨나요? 다시 집중해볼까요?"
-            }
-        } else {
-            // 같은 타입의 블록 간 전환 (Focus -> Focus 등)
-            title = if (finishedType == BlockType.FOCUS) "집중 유지 중" else "휴식 유지 중"
-            message = if (finishedType == BlockType.FOCUS) "다음 집중 블록을 계속합니다. 화이팅!" else "편안한 휴식을 계속 취하세요."
-        }
+        val title = if (isFinished) "작업 완료!" else "작업 진행 중"
+        val message = if (isFinished) "$taskTitle 세션을 마쳤습니다." else "$taskTitle - ${elapsedMinutes}분 경과"
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -133,18 +114,14 @@ class NotificationHelper(private val context: Context) {
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
             .setContentText(message)
-            .setPriority(if (isMajorTransition) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_LOW)
+            .setPriority(if (isFinished) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_LOW)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
 
         notificationManager.notify(NOTIFICATION_ID, builder.build())
         
         if (vibrationEnabled) {
-            if (isMajorTransition) {
-                if (finishedType == BlockType.FOCUS) vibrateFocusEnd() else vibrateRestEnd()
-            } else {
-                vibrateDeviceShort()
-            }
+            if (isFinished) vibrateAlarm() else vibrateDeviceShort()
         }
     }
 

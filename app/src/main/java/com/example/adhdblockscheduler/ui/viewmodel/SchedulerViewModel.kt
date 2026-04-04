@@ -226,14 +226,14 @@ class SchedulerViewModel(
             
             val newTask = Task(title = taskTitle)
             repository.insertTask(newTask)
-            selectTask(newTask.id)
             
             _uiState.update { it.copy(
+                selectedTaskId = newTask.id, // 여기서 즉시 선택
                 currentScheduleId = newSchedule.id,
-                sessionTotalMinutes = totalMinutes
+                sessionTotalMinutes = totalMinutes,
+                totalRemainingSeconds = 0 // 시작 버튼을 보여주기 위해 0으로 초기화
             ) }
-            generateDefaultBlocks(_uiState.value.alarmIntervalMinutes, totalMinutes)
-            startTimer()
+            // generateDefaultBlocks는 toggleTimer에서 startTimer 직전에 호출됨
         }
     }
 
@@ -269,6 +269,7 @@ class SchedulerViewModel(
         if (state.isRunning) {
             pauseTimer()
         } else {
+            // totalRemainingSeconds가 0이거나 초기 상태일 때만 새로 생성
             if (state.totalRemainingSeconds <= 0) {
                 // 새로운 세션 시작 시 초기화
                 val totalMin = if (state.sessionTotalMinutes > 0) state.sessionTotalMinutes else 60
@@ -291,7 +292,8 @@ class SchedulerViewModel(
             totalRemainingSeconds = 0,
             timeBlocks = emptyList(),
             selectedTaskId = null,
-            currentScheduleId = null
+            currentScheduleId = null,
+            sessionTotalMinutes = 60 // 중지 시 기본 60분으로 리셋
         ) }
     }
 
@@ -340,15 +342,18 @@ class SchedulerViewModel(
         }
     }
 
-    private fun onBlockTransition(taskTitle: String, elapsedMinutes: Int, isLast: Boolean) {
-        notificationHelper.showSimpleNotification(
-            title = "Focus Flow",
-            message = if (isLast) "$taskTitle 종료" else "$taskTitle - ${elapsedMinutes}분 경과",
+    private fun onBlockTransition(taskTitle: String, elapsedMinutes: Int, isFinished: Boolean) {
+        notificationHelper.showBlockTransitionNotification(
+            taskTitle = taskTitle,
+            elapsedMinutes = elapsedMinutes,
+            isFinished = isFinished,
             vibrationEnabled = _uiState.value.vibrationEnabled
         )
         
-        viewModelScope.launch {
-            statsRepository.addFocusMinutes(_uiState.value.alarmIntervalMinutes)
+        if (!isFinished) {
+            viewModelScope.launch {
+                statsRepository.addFocusMinutes(_uiState.value.alarmIntervalMinutes)
+            }
         }
     }
 
