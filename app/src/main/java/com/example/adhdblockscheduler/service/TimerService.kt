@@ -99,7 +99,8 @@ class TimerService : Service() {
                 
                 if (newBlockIndex != _currentBlockIndex.value) {
                     val elapsedMinutes = newBlockIndex * alarmIntervalMinutes
-                    val isLast = newBlockIndex >= totalBlocks
+                    val totalBlocksCount = totalSecondsAtStart / (alarmIntervalMinutes * 60)
+                    val isLast = newBlockIndex >= totalBlocksCount
                     onTransition(taskTitle, elapsedMinutes, isLast)
                     _currentBlockIndex.value = newBlockIndex
                 }

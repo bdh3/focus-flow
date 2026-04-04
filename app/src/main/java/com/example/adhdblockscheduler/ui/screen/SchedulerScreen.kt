@@ -234,7 +234,14 @@ fun TimerHeader(
                     modifier = Modifier.weight(1f),
                     shape = MaterialTheme.shapes.medium
                 ) {
-                    Text(if (isRunning) "일시정지" else if (remainingSeconds > 0 && remainingSeconds < 3600*24) "재개" else "시작")
+                    val isSessionActive = remainingSeconds > 0 && remainingSeconds < 3600*24
+                    Text(
+                        when {
+                            isRunning -> "일시정지"
+                            isSessionActive -> "재개"
+                            else -> "시작"
+                        }
+                    )
                 }
                 
                 if (isRunning || remainingSeconds > 0) {

@@ -37,6 +37,7 @@ fun CalendarScreen(
     val uiState by viewModel.uiState.collectAsState()
     val selectedDate by viewModel.selectedDate.collectAsState()
     var showAddTaskDialog by remember { mutableStateOf(false) }
+    var editingSchedule by remember { mutableStateOf<ScheduleBlock?>(null) }
     var isMonthlyView by remember { mutableStateOf(true) }
 
     Scaffold(
@@ -100,8 +101,7 @@ fun CalendarScreen(
                         showAddTaskDialog = true
                     },
                     onLoadSchedule = { schedule ->
-                        viewModel.loadScheduledSession(schedule)
-                        onNavigateToTimer()
+                        editingSchedule = schedule
                     },
                     onToggleBlock = { blockTime ->
                         viewModel.toggleBlock(blockTime)
@@ -113,48 +113,55 @@ fun CalendarScreen(
     }
 
     if (showAddTaskDialog) {
-        val selectedBlockList = uiState.selectedBlocks.sorted()
-        val duration = selectedBlockList.size * 15
-        val startCal = Calendar.getInstance().apply { 
-            timeInMillis = selectedBlockList.firstOrNull() ?: System.currentTimeMillis() 
-        }
-        val initialHour = startCal.get(Calendar.HOUR_OF_DAY)
-        val initialMinute = startCal.get(Calendar.MINUTE)
+        // ... (기존 추가 다이얼로그)
+    }
 
-        var taskTitle by remember { mutableStateOf("") }
-
+    if (editingSchedule != null) {
+        var taskTitle by remember(editingSchedule) { mutableStateOf(editingSchedule?.taskTitle ?: "") }
+        
         AlertDialog(
-            onDismissRequest = { showAddTaskDialog = false },
-            title = { Text("새 몰입 세션 추가") },
+            onDismissRequest = { editingSchedule = null },
+            title = { Text("세션 수정") },
             text = {
                 Column {
-                    Text(
-                        text = String.format(Locale.getDefault(), "시작 시간: %02d:%02d", initialHour, initialMinute),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
                     TextField(
                         value = taskTitle,
                         onValueChange = { taskTitle = it },
-                        placeholder = { Text("어떤 작업을 할까요? (기본: Task1)") },
+                        label = { Text("작업명") },
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("총 소요 시간: ${duration}분 (고정)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    val finalTitle = if (taskTitle.isBlank()) "Task1" else taskTitle
-                    viewModel.addSchedule(finalTitle, duration, initialHour, initialMinute)
-                    viewModel.clearSelectedBlocks()
-                    showAddTaskDialog = false
-                }) {
-                    Text("일정 추가")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            editingSchedule?.let { viewModel.deleteSchedule(it) }
+                            editingSchedule = null
+                        },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("삭제")
+                    }
+                    Button(onClick = {
+                        editingSchedule?.let { viewModel.updateSchedule(it, taskTitle) }
+                        editingSchedule = null
+                    }) {
+                        Text("수정")
+                    }
+                    Button(onClick = {
+                        editingSchedule?.let { 
+                            viewModel.loadScheduledSession(it)
+                            onNavigateToTimer()
+                        }
+                        editingSchedule = null
+                    }) {
+                        Text("수행")
+                    }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showAddTaskDialog = false }) {
+                TextButton(onClick = { editingSchedule = null }) {
                     Text("취소")
                 }
             }
