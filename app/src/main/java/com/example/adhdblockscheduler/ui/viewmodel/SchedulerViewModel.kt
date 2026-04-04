@@ -113,7 +113,7 @@ class SchedulerViewModel(
     @OptIn(ExperimentalCoroutinesApi::class)
     val uiState: StateFlow<SchedulerUiState> = combine(
         _uiState,
-        repository.allTasks,
+        _selectedDate.flatMapLatest { repository.getTasksForDate(it) },
         settingsRepository.calendarSyncEnabled,
         settingsRepository.vibrationEnabled,
         settingsRepository.alarmIntervalMinutes,
@@ -188,10 +188,13 @@ class SchedulerViewModel(
         if (_uiState.value.isRunning) return
         
         viewModelScope.launch {
-            val existingTasks = repository.allTasks.first()
-            val existingTask = existingTasks.find { it.title == schedule.taskTitle }
+            val tasksForDate = repository.getTasksForDate(_selectedDate.value).first()
+            val existingTask = tasksForDate.find { it.title == schedule.taskTitle }
             val taskId = existingTask?.id ?: run {
-                val newTask = Task(title = schedule.taskTitle)
+                val newTask = Task(
+                    title = schedule.taskTitle,
+                    scheduledDateMillis = _selectedDate.value
+                )
                 repository.insertTask(newTask)
                 newTask.id
             }
@@ -211,6 +214,7 @@ class SchedulerViewModel(
         
         viewModelScope.launch {
             val startTime = Calendar.getInstance().apply {
+                timeInMillis = _selectedDate.value
                 if (hourOfDay != null) set(Calendar.HOUR_OF_DAY, hourOfDay)
                 set(Calendar.MINUTE, 0)
                 set(Calendar.SECOND, 0)
@@ -224,7 +228,10 @@ class SchedulerViewModel(
             )
             scheduleRepository.insertSchedule(newSchedule)
             
-            val newTask = Task(title = taskTitle)
+            val newTask = Task(
+                title = taskTitle,
+                scheduledDateMillis = _selectedDate.value
+            )
             repository.insertTask(newTask)
             
             _uiState.update { it.copy(

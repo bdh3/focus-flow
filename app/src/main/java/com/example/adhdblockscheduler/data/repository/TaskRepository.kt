@@ -7,6 +7,10 @@ import kotlinx.coroutines.flow.Flow
 class TaskRepository(private val taskDao: TaskDao) {
     val allTasks: Flow<List<Task>> = taskDao.getAllTasks()
 
+    fun getTasksForDate(dateMillis: Long): Flow<List<Task>> {
+        return taskDao.getTasksForDate(dateMillis)
+    }
+
     suspend fun insertTask(task: Task) {
         taskDao.insertTask(task)
     }
