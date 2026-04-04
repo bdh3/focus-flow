@@ -134,12 +134,12 @@ class SchedulerViewModel(
         _selectedDate.flatMapLatest { scheduleRepository.getSchedulesForDay(it) },
         scheduleRepository.getAllSchedules() // 월간 뷰용 전체 일정 (요구사항 1번)
     ) { params ->
-        val state = params[0] as SchedulerUiState
-        val tasks = params[1] as List<Task>
-        val vibration = params[2] as Boolean
-        val alarmInterval = params[3] as Int
-        val dailySchedules = params[4] as List<ScheduleBlock>
-        val allSchedules = params[5] as List<ScheduleBlock>
+        val state = params[0] as? SchedulerUiState ?: SchedulerUiState()
+        val tasks = params[1] as? List<Task> ?: emptyList()
+        val vibration = params[2] as? Boolean ?: true
+        val alarmInterval = params[3] as? Int ?: 15
+        val dailySchedules = params[4] as? List<ScheduleBlock> ?: emptyList()
+        val allSchedules = params[5] as? List<ScheduleBlock> ?: emptyList()
 
         state.copy(
             tasks = tasks,
