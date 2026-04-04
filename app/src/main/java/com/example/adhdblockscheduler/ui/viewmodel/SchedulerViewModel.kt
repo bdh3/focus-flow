@@ -47,13 +47,21 @@ class SchedulerViewModel(
         val focusCount = Array[5] as Int
         val interval = Array[6] as Float
 
+        // 전체 남은 시간 계산
+        val currentBlockRemaining = state.remainingSeconds
+        val futureBlocksRemaining = state.timeBlocks
+            .drop(state.currentBlockIndex + 1)
+            .sumOf { it.durationMinutes * 60 }
+        val totalRemaining = currentBlockRemaining + futureBlocksRemaining
+
         state.copy(
             tasks = tasks,
             calendarSyncEnabled = calendarSync,
             vibrationEnabled = vibration,
             blocksPerHour = blocksPerHour,
             focusBlocksCount = focusCount,
-            notificationInterval = interval.toInt()
+            notificationInterval = interval.toInt(),
+            totalRemainingSeconds = totalRemaining
         )
     }.stateIn(
         scope = viewModelScope,
@@ -106,28 +114,55 @@ class SchedulerViewModel(
         if (timerJob?.isActive == true) return
         _uiState.update { it.copy(isRunning = true) }
         
-        val startTime = System.currentTimeMillis()
-        val initialSeconds = _uiState.value.remainingSeconds
-        var lastIntervalNotificationTime = initialSeconds
-
         timerJob = viewModelScope.launch {
-            while (_uiState.value.remainingSeconds > 0) {
-                delay(500L)
-                val elapsedSeconds = ((System.currentTimeMillis() - startTime) / 1000).toInt()
-                val newRemaining = maxOf(0, initialSeconds - elapsedSeconds)
+            while (true) {
+                val currentState = _uiState.value
+                val currentIndex = currentState.currentBlockIndex
+                val currentBlock = currentState.timeBlocks.getOrNull(currentIndex) ?: break
                 
-                // 중간 알림 로직 (설정된 간격마다)
-                val interval = _uiState.value.notificationInterval
-                if (interval > 0 && (lastIntervalNotificationTime - newRemaining) >= (interval * 60)) {
-                    if (_uiState.value.vibrationEnabled) {
-                        notificationHelper.vibrateDeviceShort()
+                val initialSeconds = currentState.remainingSeconds
+                val startTime = System.currentTimeMillis()
+                var lastIntervalNotificationTime = initialSeconds
+
+                while (_uiState.value.remainingSeconds > 0) {
+                    delay(500L)
+                    val elapsedSeconds = ((System.currentTimeMillis() - startTime) / 1000).toInt()
+                    val newRemaining = maxOf(0, initialSeconds - elapsedSeconds)
+                    
+                    // 중간 알림 로직 (설정된 간격마다)
+                    val interval = _uiState.value.notificationInterval
+                    if (interval > 0 && (lastIntervalNotificationTime - newRemaining) >= (interval * 60)) {
+                        if (_uiState.value.vibrationEnabled) {
+                            notificationHelper.vibrateDeviceShort()
+                        }
+                        lastIntervalNotificationTime = newRemaining
                     }
-                    lastIntervalNotificationTime = newRemaining
+
+                    _uiState.update { it.copy(remainingSeconds = newRemaining) }
                 }
 
-                _uiState.update { it.copy(remainingSeconds = newRemaining) }
+                // 블록 종료 및 자동 다음 블록 전환
+                val nextIndex = currentIndex + 1
+                val nextBlock = currentState.timeBlocks.getOrNull(nextIndex)
+                
+                onBlockFinished(
+                    showNotification = true,
+                    finishedType = currentBlock.type,
+                    nextType = nextBlock?.type
+                )
+
+                if (nextBlock != null) {
+                    _uiState.update { it.copy(
+                        currentBlockIndex = nextIndex,
+                        remainingSeconds = nextBlock.durationMinutes * 60
+                    ) }
+                    // 다음 블록으로 루프 계속 진행
+                } else {
+                    // 모든 블록 끝
+                    _uiState.update { it.copy(isRunning = false) }
+                    break
+                }
             }
-            onBlockFinished(showNotification = true)
         }
     }
 
@@ -136,27 +171,30 @@ class SchedulerViewModel(
         _uiState.update { it.copy(isRunning = false) }
     }
 
-    private fun onBlockFinished(showNotification: Boolean = true) {
+    private fun onBlockFinished(
+        showNotification: Boolean = true,
+        finishedType: BlockType? = null,
+        nextType: BlockType? = null
+    ) {
         val currentState = _uiState.value
         val currentIndex = currentState.currentBlockIndex
         val finishedBlock = currentState.timeBlocks[currentIndex]
-        val finishedBlockType = finishedBlock.type
-        val nextIndex = currentIndex + 1
+        val blockType = finishedType ?: finishedBlock.type
         
-        // 건너뛰기가 아닐 때만 알림 및 진동 발생
+        // 블록 전환 알림 (자동 진행 중에도 알림 발생)
         if (showNotification) {
-            notificationHelper.showBlockFinishedNotification(
-                blockType = finishedBlockType,
+            notificationHelper.showBlockTransitionNotification(
+                finishedType = blockType,
+                nextType = nextType,
                 vibrationEnabled = currentState.vibrationEnabled
             )
         }
 
         // 통계 저장 및 캘린더 연동
         viewModelScope.launch {
-            if (finishedBlockType == BlockType.FOCUS) {
+            if (blockType == BlockType.FOCUS) {
                 statsRepository.addFocusMinutes(finishedBlock.durationMinutes)
                 
-                // 캘린더 연동이 켜져있을 때만 기록
                 if (currentState.calendarSyncEnabled) {
                     CalendarHelper.addEventToCalendar(
                         context = app,
@@ -172,19 +210,7 @@ class SchedulerViewModel(
             if (index == currentIndex) block.copy(isCompleted = true) else block
         }
 
-        if (nextIndex < updatedBlocks.size) {
-            _uiState.update { it.copy(
-                timeBlocks = updatedBlocks,
-                currentBlockIndex = nextIndex,
-                remainingSeconds = updatedBlocks[nextIndex].durationMinutes * 60,
-                isRunning = false
-            ) }
-        } else {
-            _uiState.update { it.copy(
-                timeBlocks = updatedBlocks,
-                isRunning = false
-            ) }
-        }
+        _uiState.update { it.copy(timeBlocks = updatedBlocks) }
     }
 
     fun updateBlocksPerHour(count: Int) {
@@ -206,8 +232,24 @@ class SchedulerViewModel(
     }
 
     fun skipBlock() {
+        val currentState = _uiState.value
+        val currentIndex = currentState.currentBlockIndex
+        val nextIndex = currentIndex + 1
+        val nextBlock = currentState.timeBlocks.getOrNull(nextIndex)
+
         pauseTimer()
-        onBlockFinished(showNotification = false)
+        onBlockFinished(
+            showNotification = false,
+            finishedType = currentState.timeBlocks[currentIndex].type,
+            nextType = nextBlock?.type
+        )
+
+        if (nextBlock != null) {
+            _uiState.update { it.copy(
+                currentBlockIndex = nextIndex,
+                remainingSeconds = nextBlock.durationMinutes * 60
+            ) }
+        }
     }
 
     fun addTask(title: String) {
@@ -265,6 +307,7 @@ data class SchedulerUiState(
     val tasks: List<Task> = emptyList(),
     val currentBlockIndex: Int = 0,
     val remainingSeconds: Int = 0,
+    val totalRemainingSeconds: Int = 0,
     val isRunning: Boolean = false,
     val calendarSyncEnabled: Boolean = false,
     val vibrationEnabled: Boolean = true,

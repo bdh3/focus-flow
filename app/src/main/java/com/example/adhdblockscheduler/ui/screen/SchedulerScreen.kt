@@ -32,7 +32,7 @@ fun SchedulerScreen(viewModel: SchedulerViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("ADHD Block Scheduler") }
+                title = { Text("Focus Flow") }
             )
         },
         floatingActionButton = {
@@ -55,6 +55,7 @@ fun SchedulerScreen(viewModel: SchedulerViewModel) {
 
             TimerHeader(
                 remainingSeconds = uiState.remainingSeconds,
+                totalRemainingSeconds = uiState.totalRemainingSeconds,
                 isRunning = uiState.isRunning,
                 progress = progress,
                 blockType = currentBlock?.type ?: BlockType.FOCUS,
@@ -133,6 +134,7 @@ fun SchedulerScreen(viewModel: SchedulerViewModel) {
 @Composable
 fun TimerHeader(
     remainingSeconds: Int,
+    totalRemainingSeconds: Int,
     isRunning: Boolean,
     progress: Float,
     blockType: BlockType,
@@ -143,6 +145,10 @@ fun TimerHeader(
     val seconds = remainingSeconds % 60
     val timeText = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
 
+    val totalMinutes = totalRemainingSeconds / 60
+    val totalSecondsRem = totalRemainingSeconds % 60
+    val totalTimeText = String.format(Locale.getDefault(), "%02d:%02d", totalMinutes, totalSecondsRem)
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -151,12 +157,31 @@ fun TimerHeader(
             modifier = Modifier.padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = if (blockType == BlockType.FOCUS) "집중할 시간입니다" else "잠시 쉬어가는 시간입니다",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (blockType == BlockType.FOCUS) "집중 중" else "휴식 중",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (blockType == BlockType.FOCUS) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                    fontWeight = FontWeight.Bold
+                )
+                
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Text(
+                        text = "전체 남은 시간: $totalTimeText",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             Box(contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(

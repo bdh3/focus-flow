@@ -40,9 +40,27 @@ class NotificationHelper(private val context: Context) {
         }
     }
 
-    fun showBlockFinishedNotification(blockType: BlockType, vibrationEnabled: Boolean) {
-        val title = if (blockType == BlockType.FOCUS) "집중 시간 종료!" else "휴식 시간 종료!"
-        val message = if (blockType == BlockType.FOCUS) "수고하셨습니다. 이제 휴식을 취하세요." else "충분히 쉬셨나요? 다시 집중해볼까요?"
+    fun showBlockTransitionNotification(
+        finishedType: BlockType,
+        nextType: BlockType?,
+        vibrationEnabled: Boolean
+    ) {
+        val title: String
+        val message: String
+        val isMajorTransition = nextType == null || finishedType != nextType
+
+        if (isMajorTransition) {
+            title = if (finishedType == BlockType.FOCUS) "집중 시간 종료!" else "휴식 시간 종료!"
+            message = if (finishedType == BlockType.FOCUS) {
+                if (nextType == BlockType.REST) "수고하셨습니다. 이제 휴식을 취하세요." else "모든 세션이 종료되었습니다!"
+            } else {
+                "충분히 쉬셨나요? 다시 집중해볼까요?"
+            }
+        } else {
+            // 같은 타입의 블록 간 전환 (Focus -> Focus 등)
+            title = if (finishedType == BlockType.FOCUS) "집중 유지 중" else "휴식 유지 중"
+            message = if (finishedType == BlockType.FOCUS) "다음 집중 블록을 계속합니다. 화이팅!" else "편안한 휴식을 계속 취하세요."
+        }
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -56,14 +74,14 @@ class NotificationHelper(private val context: Context) {
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
             .setContentText(message)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(if (isMajorTransition) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
 
         notificationManager.notify(NOTIFICATION_ID, builder.build())
         
         if (vibrationEnabled) {
-            vibrateDevice()
+            if (isMajorTransition) vibrateDevice() else vibrateDeviceShort()
         }
     }
 
