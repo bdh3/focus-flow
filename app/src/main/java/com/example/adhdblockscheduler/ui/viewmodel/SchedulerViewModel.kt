@@ -37,6 +37,7 @@ data class SchedulerUiState(
     val calendarSyncEnabled: Boolean = false,
     val selectedBlocks: Set<Long> = emptySet(),
     val dailySchedules: List<ScheduleBlock> = emptyList(),
+    val allSchedules: List<ScheduleBlock> = emptyList(), // 전체 일정 추가
     val currentScheduleId: String? = null
 )
 
@@ -110,30 +111,42 @@ class SchedulerViewModel(
     val uiState: StateFlow<SchedulerUiState> = combine(
         _uiState,
         _selectedDate.flatMapLatest { 
-            // 타이머 탭의 작업 목록은 항상 오늘 날짜의 작업만 표시하도록 고정
             val today = Calendar.getInstance().apply {
-                set(Calendar.HOUR_OF_DAY, 0)
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
+                set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
             }.timeInMillis
-            repository.getTasksForDate(today)
+            
+            // 오늘 날짜의 Task와 ScheduleBlock을 결합하여 타이머 작업 목록 생성 (요구사항 3번)
+            combine(
+                repository.getTasksForDate(today),
+                scheduleRepository.getSchedulesForDay(today)
+            ) { tasks, schedules ->
+                val combined = tasks.toMutableList()
+                schedules.forEach { schedule ->
+                    if (combined.none { it.title == schedule.taskTitle }) {
+                        combined.add(Task(id = "sched_${schedule.id}", title = schedule.taskTitle, scheduledDateMillis = today))
+                    }
+                }
+                combined
+            }
         },
         settingsRepository.vibrationEnabled,
         settingsRepository.alarmIntervalMinutes,
-        _selectedDate.flatMapLatest { scheduleRepository.getSchedulesForDay(it) }
+        _selectedDate.flatMapLatest { scheduleRepository.getSchedulesForDay(it) },
+        scheduleRepository.getAllSchedules() // 월간 뷰용 전체 일정 (요구사항 1번)
     ) { params ->
         val state = params[0] as SchedulerUiState
         val tasks = params[1] as List<Task>
         val vibration = params[2] as Boolean
         val alarmInterval = params[3] as Int
         val dailySchedules = params[4] as List<ScheduleBlock>
+        val allSchedules = params[5] as List<ScheduleBlock>
 
         state.copy(
             tasks = tasks,
             vibrationEnabled = vibration,
             alarmIntervalMinutes = alarmInterval,
             dailySchedules = dailySchedules,
+            allSchedules = allSchedules,
             calendarSyncEnabled = false 
         )
     }.stateIn(

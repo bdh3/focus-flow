@@ -99,8 +99,8 @@ class NotificationHelper(private val context: Context) {
         isFinished: Boolean,
         vibrationEnabled: Boolean
     ) {
-        val title = if (isFinished) "작업 완료!" else "작업 진행 중"
-        val message = if (isFinished) "$taskTitle 세션을 마쳤습니다." else "$taskTitle - ${elapsedMinutes}분 경과"
+        val title = if (isFinished) "몰입 완료!" else "몰입 중"
+        val message = if (isFinished) "$taskTitle - 모든 세션을 마쳤습니다." else "$taskTitle - ${elapsedMinutes}분 경과"
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK

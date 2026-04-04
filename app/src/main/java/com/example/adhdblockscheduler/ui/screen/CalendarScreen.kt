@@ -1,5 +1,6 @@
 package com.example.adhdblockscheduler.ui.screen
 
+import android.app.DatePickerDialog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -13,6 +14,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -33,15 +36,38 @@ fun CalendarScreen(
     var showAddTaskDialog by remember { mutableStateOf(false) }
     var editingSchedule by remember { mutableStateOf<ScheduleBlock?>(null) }
     var isMonthlyView by remember { mutableStateOf(true) }
+    val context = LocalContext.current
+
+    val datePickerDialog = remember {
+        val cal = Calendar.getInstance().apply { timeInMillis = selectedDate }
+        DatePickerDialog(
+            context,
+            { _, y, m, d ->
+                val newCal = Calendar.getInstance().apply {
+                    set(y, m, d)
+                }
+                viewModel.selectDate(newCal.timeInMillis)
+            },
+            cal.get(Calendar.YEAR),
+            cal.get(Calendar.MONTH),
+            cal.get(Calendar.DAY_OF_MONTH)
+        )
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { 
-                    Text(
-                        text = if (isMonthlyView) formatMonth(selectedDate) else formatDate(selectedDate),
-                        style = MaterialTheme.typography.titleMedium
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { datePickerDialog.show() } // 연도 선택을 위한 클릭 (요구사항 2번)
+                    ) {
+                        Text(
+                            text = if (isMonthlyView) formatMonth(selectedDate) else formatDate(selectedDate),
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Icon(Icons.Default.ArrowDropDown, null)
+                    }
                 },
                 actions = {
                     IconButton(onClick = {
@@ -82,6 +108,7 @@ fun CalendarScreen(
             if (isMonthlyView) {
                 MonthlyCalendarView(
                     selectedDate = selectedDate,
+                    allSchedules = uiState.allSchedules, // 전체 일정 전달 (요구사항 1번)
                     onDateSelected = { 
                         viewModel.selectDate(it)
                         isMonthlyView = false
@@ -194,7 +221,7 @@ fun CalendarScreen(
                     Button(onClick = {
                         editingSchedule?.let { 
                             viewModel.loadScheduledSession(it)
-                            onNavigateToTimer()
+                            onNavigateToTimer() // 타이머 탭으로 이동 (요구사항 6번 개선)
                         }
                         editingSchedule = null
                     }) {
@@ -214,6 +241,7 @@ fun CalendarScreen(
 @Composable
 fun MonthlyCalendarView(
     selectedDate: Long,
+    allSchedules: List<ScheduleBlock>,
     onDateSelected: (Long) -> Unit
 ) {
     val calendar = Calendar.getInstance().apply { timeInMillis = selectedDate }
@@ -223,11 +251,11 @@ fun MonthlyCalendarView(
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
             listOf("일", "월", "화", "수", "목", "금", "토").forEach { day ->
-                Text(day, style = MaterialTheme.typography.labelMedium)
+                Text(day, style = MaterialTheme.typography.labelMedium, color = if (day == "일") Color.Red else if (day == "토") Color.Blue else Color.Unspecified)
             }
         }
         
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(16.dp))
         
         var currentDay = 1
         for (i in 0..5) {
@@ -235,27 +263,39 @@ fun MonthlyCalendarView(
                 for (j in 0..6) {
                     val index = i * 7 + j
                     if (index < firstDayOfWeek || currentDay > daysInMonth) {
-                        Box(modifier = Modifier.size(40.dp))
+                        Box(modifier = Modifier.size(45.dp))
                     } else {
                         val dayDate = Calendar.getInstance().apply {
                             timeInMillis = selectedDate
                             set(Calendar.DAY_OF_MONTH, currentDay)
+                            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
                         }.timeInMillis
                         
                         val isSelected = isSameDay(dayDate, selectedDate)
+                        val taskCount = allSchedules.count { isSameDay(it.startTimeMillis, dayDate) } // 태스크 수 계산 (요구사항 1번)
                         
-                        Box(
+                        Column(
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(45.dp)
                                 .clip(MaterialTheme.shapes.small)
-                                .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                                 .clickable { onDateSelected(dayDate) },
-                            contentAlignment = Alignment.Center
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
                         ) {
                             Text(
                                 text = currentDay.toString(),
-                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                             )
+                            if (taskCount > 0) {
+                                Text(
+                                    text = taskCount.toString(),
+                                    fontSize = 9.sp,
+                                    color = Color(0xFF2E7D32), // 녹색 표시 (요구사항 1번)
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                         currentDay++
                     }

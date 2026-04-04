@@ -36,4 +36,8 @@ class ScheduleRepository(private val scheduleDao: ScheduleDao) {
     suspend fun deleteSchedule(schedule: ScheduleBlock) {
         scheduleDao.deleteSchedule(schedule)
     }
+
+    fun getAllSchedules(): Flow<List<ScheduleBlock>> {
+        return scheduleDao.getAllSchedules()
+    }
 }

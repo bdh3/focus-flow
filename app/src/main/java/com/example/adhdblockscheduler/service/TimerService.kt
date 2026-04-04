@@ -94,7 +94,7 @@ class TimerService : Service() {
                 val newBlockIndex = sessionElapsedSeconds / intervalSeconds
                 
                 if (newBlockIndex != _currentBlockIndex.value) {
-                    val elapsedMinutes = newBlockIndex * alarmIntervalMinutes
+                    val elapsedMinutes = (newBlockIndex) * alarmIntervalMinutes
                     val isFinished = currentTotalRemaining <= 0
                     onTransition(taskTitle, elapsedMinutes, isFinished)
                     _currentBlockIndex.value = newBlockIndex
@@ -103,13 +103,18 @@ class TimerService : Service() {
                 _totalRemainingSeconds.value = currentTotalRemaining
                 _remainingSeconds.value = intervalSeconds - (sessionElapsedSeconds % intervalSeconds)
                 
-                if (currentTotalRemaining % 10 == 0) { // 10초마다 알림 갱신
-                    updateNotification()
-                }
+                // 실시간 10초 단위 알림 갱신 제거 (요구사항 5번)
+                // if (currentTotalRemaining % 10 == 0) { 
+                //     updateNotification()
+                // }
             }
 
             _isRunning.value = false
             _totalRemainingSeconds.value = 0
+            
+            // 세션 종료 알림 명시적 호출 (요구사항 7번)
+            onTransition(taskTitle, totalSecondsAtStart / 60, true)
+
             onFinished()
             stopForeground(STOP_FOREGROUND_DETACH)
             stopSelf()
