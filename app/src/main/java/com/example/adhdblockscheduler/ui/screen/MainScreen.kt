@@ -85,10 +85,9 @@ fun MainScreen(viewModel: SchedulerViewModel, startRoute: String? = null) {
                 SchedulerScreen(viewModel, onNavigateToCalendar = {
                     navController.navigate(Screen.Calendar.route) {
                         popUpTo(navController.graph.findStartDestination().id) {
-                            saveState = true
+                            inclusive = false
                         }
                         launchSingleTop = true
-                        restoreState = true
                     }
                 }) 
             }

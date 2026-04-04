@@ -262,12 +262,14 @@ fun TimerHeader(
                     }
                 }
 
-                OutlinedButton(
-                    onClick = onSkip,
-                    modifier = Modifier.weight(0.8f),
-                    shape = MaterialTheme.shapes.medium
-                ) {
-                    Text(text = "넘기기", maxLines = 1)
+                if (isRunning) {
+                    OutlinedButton(
+                        onClick = onSkip,
+                        modifier = Modifier.weight(0.8f),
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        Text(text = "넘기기", maxLines = 1)
+                    }
                 }
             }
         }

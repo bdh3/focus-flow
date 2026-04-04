@@ -372,11 +372,12 @@ class SchedulerViewModel(
     private fun startTimer() {
         val state = _uiState.value
         val task = state.tasks.find { it.id == state.selectedTaskId }
+        val finalTitle = task?.title ?: "작업"
         
         timerService?.setTimerConfig(
             interval = state.alarmIntervalMinutes,
             totalSec = state.sessionTotalMinutes * 60,
-            title = task?.title ?: "작업",
+            title = finalTitle,
             vibrate = state.vibrationEnabled,
             onTransition = { title, elapsed, finished ->
                 onBlockTransition(title, elapsed, finished)
