@@ -8,13 +8,14 @@ import android.content.ServiceConnection
 import android.os.IBinder
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.adhdblockscheduler.data.local.ScheduleBlock
-import com.example.adhdblockscheduler.data.prefs.SettingsRepository
-import com.example.adhdblockscheduler.data.repository.ScheduleRepository
-import com.example.adhdblockscheduler.data.repository.StatsRepository
-import com.example.adhdblockscheduler.data.repository.TaskRepository
+import com.example.adhdblockscheduler.model.ScheduleBlock
 import com.example.adhdblockscheduler.model.Task
 import com.example.adhdblockscheduler.model.TimeBlock
+import com.example.adhdblockscheduler.model.BlockType
+import com.example.adhdblockscheduler.data.repository.TaskRepository
+import com.example.adhdblockscheduler.data.prefs.SettingsRepository
+import com.example.adhdblockscheduler.data.repository.StatsRepository
+import com.example.adhdblockscheduler.data.repository.ScheduleRepository
 import com.example.adhdblockscheduler.service.TimerService
 import com.example.adhdblockscheduler.util.NotificationHelper
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -146,8 +147,9 @@ class SchedulerViewModel(
         val blocks = List(blocksCount) { index ->
             TimeBlock(
                 id = index.toString(),
-                title = "블록 ${index + 1}",
+                startTime = System.currentTimeMillis() + (index * interval * 60 * 1000L),
                 durationMinutes = interval,
+                type = BlockType.FOCUS,
                 isCompleted = false
             )
         }

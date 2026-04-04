@@ -4,26 +4,20 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.adhdblockscheduler.model.ScheduleBlock
+import com.example.adhdblockscheduler.ui.viewmodel.SchedulerUiState
 import com.example.adhdblockscheduler.ui.viewmodel.SchedulerViewModel
 import java.text.SimpleDateFormat
 import java.util.*
@@ -222,74 +216,59 @@ fun MonthlyCalendarView(
     selectedDate: Long,
     onDateSelected: (Long) -> Unit
 ) {
-    val calendar = Calendar.getInstance().apply {
-        timeInMillis = selectedDate
-        set(Calendar.DAY_OF_MONTH, 1)
-    }
-    val monthStartDayOfWeek = calendar.get(Calendar.DAY_OF_WEEK) - 1
+    val calendar = Calendar.getInstance().apply { timeInMillis = selectedDate }
     val daysInMonth = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
-    
-    val days = mutableListOf<Long?>()
-    for (i in 0 until monthStartDayOfWeek) days.add(null)
-    for (i in 1..daysInMonth) {
-        val cal = calendar.clone() as Calendar
-        cal.set(Calendar.DAY_OF_MONTH, i)
-        days.add(cal.timeInMillis)
-    }
+    val firstDayOfWeek = calendar.apply { set(Calendar.DAY_OF_MONTH, 1) }.get(Calendar.DAY_OF_WEEK) - 1
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
             listOf("일", "월", "화", "수", "목", "금", "토").forEach { day ->
-                Text(
-                    text = day,
-                    modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.Center,
-                    fontWeight = FontWeight.Bold,
-                    color = if (day == "일") Color.Red else if (day == "토") Color.Blue else Color.Unspecified
-                )
+                Text(day, style = MaterialTheme.typography.labelMedium)
             }
         }
+        
         Spacer(modifier = Modifier.height(8.dp))
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(7),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            items(days) { dateMillis ->
-                if (dateMillis != null) {
-                    val isSelected = isSameDay(dateMillis, selectedDate)
-                    val isToday = isToday(dateMillis)
-                    val cal = Calendar.getInstance().apply { timeInMillis = dateMillis }
-
-                    Box(
-                        modifier = Modifier
-                            .aspectRatio(1f)
-                            .padding(4.dp)
-                            .clip(MaterialTheme.shapes.small)
-                            .background(
-                                if (isSelected) MaterialTheme.colorScheme.primaryContainer
-                                else if (isToday) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
-                                else Color.Transparent
+        
+        var currentDay = 1
+        for (i in 0..5) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
+                for (j in 0..6) {
+                    val index = i * 7 + j
+                    if (index < firstDayOfWeek || currentDay > daysInMonth) {
+                        Box(modifier = Modifier.size(40.dp))
+                    } else {
+                        val dayDate = Calendar.getInstance().apply {
+                            timeInMillis = selectedDate
+                            set(Calendar.DAY_OF_MONTH, currentDay)
+                        }.timeInMillis
+                        
+                        val isSelected = isSameDay(dayDate, selectedDate)
+                        
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(MaterialTheme.shapes.small)
+                                .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                .clickable { onDateSelected(dayDate) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = currentDay.toString(),
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
                             )
-                            .clickable { onDateSelected(dateMillis) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = cal.get(Calendar.DAY_OF_MONTH).toString(),
-                            fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Unspecified
-                        )
+                        }
+                        currentDay++
                     }
-                } else {
-                    Spacer(modifier = Modifier.aspectRatio(1f))
                 }
             }
+            if (currentDay > daysInMonth) break
         }
     }
 }
 
 @Composable
 fun DailyTimelineView(
-    uiState: com.example.adhdblockscheduler.ui.viewmodel.SchedulerUiState,
+    uiState: SchedulerUiState,
     selectedDate: Long,
     onAddSchedule: (Int, Int, Int) -> Unit,
     onLoadSchedule: (ScheduleBlock) -> Unit,
@@ -297,29 +276,27 @@ fun DailyTimelineView(
     onClearSelection: () -> Unit
 ) {
     val listState = rememberLazyListState()
-    val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
     
-    // 현재 시간 위치로 자동 스크롤
-    LaunchedEffect(Unit) {
-        listState.scrollToItem(currentHour)
+    // 현재 시간으로 스크롤 (오늘인 경우)
+    LaunchedEffect(key1 = selectedDate) {
+        if (isToday(selectedDate)) {
+            val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+            listState.scrollToItem(currentHour)
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
         if (uiState.selectedBlocks.isNotEmpty()) {
             Surface(
                 color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.fillMaxWidth(),
-                shadowElevation = 4.dp
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    modifier = Modifier.padding(8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
-                        Text("${uiState.selectedBlocks.size}개 블록 선택됨", fontWeight = FontWeight.Bold)
-                        Text("총 ${uiState.selectedBlocks.size * 15}분 세션", style = MaterialTheme.typography.bodySmall)
-                    }
+                    Text("${uiState.selectedBlocks.size * 15}분 선택됨", style = MaterialTheme.typography.titleSmall)
                     Row {
                         TextButton(onClick = onClearSelection) { Text("취소") }
                         Button(onClick = { onAddSchedule(0, 0, 0) }) { Text("세션 생성") }
@@ -328,8 +305,13 @@ fun DailyTimelineView(
             }
         }
         
-        LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
-            items((0..23).toList()) { hour ->
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(24) { hour ->
                 HourRow(
                     hour = hour,
                     selectedDate = selectedDate,
@@ -337,7 +319,6 @@ fun DailyTimelineView(
                     onToggleBlock = onToggleBlock,
                     onLoadSchedule = onLoadSchedule
                 )
-                HorizontalDivider(color = Color.LightGray.copy(alpha = 0.3f))
             }
         }
     }
@@ -347,14 +328,12 @@ fun DailyTimelineView(
 fun HourRow(
     hour: Int,
     selectedDate: Long,
-    uiState: com.example.adhdblockscheduler.ui.viewmodel.SchedulerUiState,
+    uiState: SchedulerUiState,
     onToggleBlock: (Long) -> Unit,
     onLoadSchedule: (ScheduleBlock) -> Unit
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp, horizontal = 12.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
@@ -377,10 +356,9 @@ fun HourRow(
                     set(Calendar.MILLISECOND, 0)
                 }.timeInMillis
                 
-                val schedule = uiState.dailySchedules.find { 
-                    val sCal = Calendar.getInstance().apply { timeInMillis = it.startTimeMillis }
-                    val sStart = sCal.timeInMillis
-                    val sEnd = sStart + it.durationMinutes * 60 * 1000L
+                val schedule = uiState.dailySchedules.find { s ->
+                    val sStart = s.startTimeMillis
+                    val sEnd = sStart + s.durationMinutes * 60 * 1000L
                     blockStartTime >= sStart && blockStartTime < sEnd
                 }
 
@@ -423,22 +401,20 @@ private fun isSameDay(m1: Long, m2: Long): Boolean {
            cal1.get(Calendar.DAY_OF_YEAR) == cal2.get(Calendar.DAY_OF_YEAR)
 }
 
-private fun isToday(millis: Long): Boolean {
-    val cal1 = Calendar.getInstance()
-    val cal2 = Calendar.getInstance().apply { timeInMillis = millis }
-    return isSameDay(cal1.timeInMillis, cal2.timeInMillis)
+private fun isToday(m1: Long): Boolean {
+    return isSameDay(m1, System.currentTimeMillis())
 }
 
 private fun isSameTime(m1: Long, m2: Long): Boolean {
-    return (m1 / 60000) == (m2 / 60000)
+    return m1 / 60000 == m2 / 60000
 }
 
-private fun formatDate(millis: Long): String {
-    val sdf = SimpleDateFormat("MM월 dd일 (EEE)", Locale.KOREA)
-    return sdf.format(Date(millis))
+private fun formatDate(dateMillis: Long): String {
+    val sdf = SimpleDateFormat("M월 d일 (E)", Locale.KOREAN)
+    return sdf.format(Date(dateMillis))
 }
 
-private fun formatMonth(millis: Long): String {
-    val sdf = SimpleDateFormat("yyyy년 MM월", Locale.KOREA)
-    return sdf.format(Date(millis))
+private fun formatMonth(dateMillis: Long): String {
+    val sdf = SimpleDateFormat("yyyy년 M월", Locale.KOREAN)
+    return sdf.format(Date(dateMillis))
 }
