@@ -426,6 +426,7 @@ class SchedulerViewModel(
                         context = app,
                         title = "집중 완료",
                         description = "ADHD 블록 스케줄러를 통한 집중 세션",
+                        startTime = finishedBlock.startTime,
                         durationMinutes = finishedBlock.durationMinutes
                     )
                 }
