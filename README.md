@@ -51,7 +51,7 @@ ADHD 성향을 가진 사용자들이 시간의 흐름을 직관적으로 인지
 ## 🚀 빌드 및 실행 방법
 
 1.  **Prerequisites**: Android Studio (최신 버전 권장), JDK 11 이상
-2.  `git clone https://github.com/your-username/adhd-block-scheduler.git`
+2.  `git clone https://github.com/bdh3/adhd-block-scheduler.git`
 3.  Android Studio에서 프로젝트를 엽니다.
 4.  필요한 Gradle 종속성이 동기화될 때까지 기다립니다.
 5.  에뮬레이터 또는 실제 기기에서 앱을 실행합니다.
