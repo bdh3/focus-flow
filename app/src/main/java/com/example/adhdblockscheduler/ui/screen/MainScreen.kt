@@ -57,7 +57,7 @@ fun MainScreen(viewModel: SchedulerViewModel, startRoute: String? = null) {
                         selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
                         onClick = {
                             navController.navigate(screen.route) {
-                                // 기존 백스택을 유지하면서 이동하도록 수정
+                                // 기존 백스택을 정리하고 시작 화면으로 고정하여 탭 전환 보장
                                 popUpTo(navController.graph.findStartDestination().id) {
                                     saveState = true
                                 }

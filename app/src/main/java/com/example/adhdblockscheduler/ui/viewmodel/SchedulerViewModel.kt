@@ -370,7 +370,8 @@ class SchedulerViewModel(
     }
 
     private fun startTimer() {
-        val state = _uiState.value
+        // _uiState.value 대신 결합된 uiState.value를 사용하여 실제 DB 데이터(tasks)를 참조
+        val state = uiState.value 
         val task = state.tasks.find { it.id == state.selectedTaskId }
         val finalTitle = task?.title ?: "작업"
         
@@ -394,7 +395,7 @@ class SchedulerViewModel(
     }
 
     fun skipBlock() {
-        val state = _uiState.value
+        val state = uiState.value
         if (!state.isRunning) return
         
         val intervalSeconds = state.alarmIntervalMinutes * 60
@@ -412,6 +413,10 @@ class SchedulerViewModel(
             
             timerService?.startTimer(newTotalRemainingSeconds)
         } else {
+            // 마지막 블록 스킵 시: 직접 완료 알림을 보내고 종료
+            val task = state.tasks.find { it.id == state.selectedTaskId }
+            onBlockTransition(task?.title ?: "작업", state.sessionTotalMinutes, true)
+
             onSessionFinished()
             timerService?.stopTimer()
         }
