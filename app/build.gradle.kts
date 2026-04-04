@@ -23,34 +23,27 @@ android {
     }
 
     signingConfigs {
-        val keystoreFile = file("debug.keystore")
-        if (keystoreFile.exists()) {
-            create("release") {
-                storeFile = keystoreFile
-                storePassword = "android"
-                keyAlias = "androiddebugkey"
-                keyPassword = "android"
-            }
+        create("release") {
+            // 프로젝트 루트(app/)에 있는 debug.keystore를 고정 사용
+            // 이 파일이 레포지토리에 있어야 GitHub Actions에서도 동일한 서명이 생성됩니다.
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            val releaseConfig = signingConfigs.findByName("release")
-            if (releaseConfig != null) {
-                signingConfig = releaseConfig
-            }
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
         debug {
-            val releaseConfig = signingConfigs.findByName("release")
-            if (releaseConfig != null) {
-                signingConfig = releaseConfig
-            }
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
