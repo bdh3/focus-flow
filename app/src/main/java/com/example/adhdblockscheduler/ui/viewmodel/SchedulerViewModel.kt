@@ -135,7 +135,14 @@ class SchedulerViewModel(
                     val displayTitle = "${schedule.taskTitle} $timeStr"
                     
                     if (combined.none { it.title == displayTitle || it.title == schedule.taskTitle }) {
-                        combined.add(Task(id = "sched_${schedule.id}", title = displayTitle, scheduledDateMillis = today))
+                        combined.add(
+                            Task(
+                                id = "sched_${schedule.id}", 
+                                title = displayTitle, 
+                                scheduledDateMillis = today,
+                                isCompleted = schedule.isCompleted
+                            )
+                        )
                     }
                 }
                 combined
@@ -288,7 +295,13 @@ class SchedulerViewModel(
     }
 
     fun selectTask(taskId: String?) {
-        _uiState.update { it.copy(selectedTaskId = taskId) }
+        _uiState.update { state ->
+            val scheduleId = if (taskId?.startsWith("sched_") == true) taskId.removePrefix("sched_") else null
+            state.copy(
+                selectedTaskId = taskId,
+                currentScheduleId = scheduleId
+            )
+        }
     }
 
     fun addTask(title: String) {
@@ -322,7 +335,15 @@ class SchedulerViewModel(
 
     fun toggleTaskCompletion(task: Task) {
         viewModelScope.launch {
-            repository.updateTaskCompletion(task.id, !task.isCompleted)
+            if (task.id.startsWith("sched_")) {
+                val scheduleId = task.id.removePrefix("sched_")
+                val schedule = scheduleRepository.getScheduleById(scheduleId)
+                if (schedule != null) {
+                    scheduleRepository.updateSchedule(schedule.copy(isCompleted = !schedule.isCompleted))
+                }
+            } else {
+                repository.updateTaskCompletion(task.id, !task.isCompleted)
+            }
         }
     }
 
@@ -412,7 +433,7 @@ class SchedulerViewModel(
 
     private fun onSessionFinished() {
         val currentState = _uiState.value
-        val currentScheduleId = currentState.currentScheduleId
+        val currentTaskId = currentState.selectedTaskId
         
         _uiState.update { it.copy(
             timeBlocks = it.timeBlocks.map { b -> b.copy(isCompleted = true) },
@@ -420,18 +441,17 @@ class SchedulerViewModel(
             totalRemainingSeconds = 0
         ) }
         
-        if (currentScheduleId != null) {
-            viewModelScope.launch {
-                val schedule = scheduleRepository.getScheduleById(currentScheduleId)
-                if (schedule != null) {
-                    scheduleRepository.updateSchedule(schedule.copy(isCompleted = true))
+        viewModelScope.launch {
+            if (currentTaskId != null) {
+                if (currentTaskId.startsWith("sched_")) {
+                    val scheduleId = currentTaskId.removePrefix("sched_")
+                    val schedule = scheduleRepository.getScheduleById(scheduleId)
+                    if (schedule != null) {
+                        scheduleRepository.updateSchedule(schedule.copy(isCompleted = true))
+                    }
+                } else {
+                    repository.updateTaskCompletion(currentTaskId, true)
                 }
-            }
-        }
-        
-        currentState.selectedTaskId?.let { taskId ->
-            viewModelScope.launch {
-                repository.updateTaskCompletion(taskId, true)
             }
         }
     }

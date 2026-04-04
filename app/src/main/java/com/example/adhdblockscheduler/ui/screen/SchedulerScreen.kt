@@ -103,7 +103,7 @@ fun SchedulerScreen(viewModel: SchedulerViewModel, onNavigateToCalendar: () -> U
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "진행할 작업 선택",
+                            text = "작업 리스트",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
