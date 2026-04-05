@@ -236,10 +236,7 @@ class SchedulerViewModel(
         
         generateDefaultBlocks(_uiState.value.alarmIntervalMinutes, schedule.durationMinutes)
         
-        viewModelScope.launch {
-            delay(100)
-            startTimer()
-        }
+        // v1.3.0: 자동으로 startTimer()를 호출하지 않고 사용자의 입력을 대기합니다.
     }
 
     fun startNewSession(taskTitle: String, totalMinutes: Int, hourOfDay: Int? = null) {
