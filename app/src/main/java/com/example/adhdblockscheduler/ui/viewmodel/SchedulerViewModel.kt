@@ -181,10 +181,17 @@ class SchedulerViewModel(
             tasks
         }
 
+        // 세션이 활성 상태일 때는 외부 설정 변경이 현재 세션의 인터벌에 영향을 주지 않도록 고정
+        val effectiveAlarmInterval = if (isSessionActive) {
+            state.alarmIntervalMinutes
+        } else {
+            alarmInterval
+        }
+
         state.copy(
             tasks = filteredTasks,
             vibrationEnabled = vibration,
-            alarmIntervalMinutes = alarmInterval,
+            alarmIntervalMinutes = effectiveAlarmInterval,
             dailySchedules = dailySchedules,
             allSchedules = allSchedules
         )
