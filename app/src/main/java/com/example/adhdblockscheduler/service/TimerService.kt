@@ -1,27 +1,25 @@
 package com.example.adhdblockscheduler.service
 
 import android.app.Notification
-import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.os.Binder
 import android.os.IBinder
+import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import com.example.adhdblockscheduler.util.NotificationHelper
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
-import java.util.Locale
+import kotlinx.coroutines.flow.update
 
 class TimerService : Service() {
 
     private val binder = TimerBinder()
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
     private var timerJob: Job? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     private val _remainingSeconds = MutableStateFlow(0)
     val remainingSeconds = _remainingSeconds.asStateFlow()
@@ -39,21 +37,27 @@ class TimerService : Service() {
     private var alarmIntervalMinutes = 15
     private var totalSecondsAtStart = 0
     private var taskTitle = "작업"
-    private var vibrationEnabled = true
     private var onTransition: (String, Int, Boolean) -> Unit = { _, _, _ -> }
     private var onFinished: () -> Unit = {}
+
+    private var targetEndTimeMillis: Long = 0
 
     inner class TimerBinder : Binder() {
         fun getService(): TimerService = this@TimerService
     }
 
+    override fun onCreate() {
+        super.onCreate()
+        val powerManager = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "FocusFlow::TimerWakeLock")
+    }
+
     override fun onBind(intent: Intent?): IBinder = binder
 
     private fun createSilentForegroundNotification(): Notification {
-        // 무음 채널(SILENT_CHANNEL_ID)을 사용하여 알림이 방해되지 않도록 함
         return NotificationCompat.Builder(this, NotificationHelper.SILENT_CHANNEL_ID)
             .setContentTitle("Focus Flow")
-            .setContentText("타이머가 백그라운드에서 실행 중입니다.")
+            .setContentText("타이머가 백그라운드에서 정확하게 실행 중입니다.")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
@@ -72,7 +76,6 @@ class TimerService : Service() {
         this.alarmIntervalMinutes = interval
         this.totalSecondsAtStart = totalSec
         this.taskTitle = title
-        this.vibrationEnabled = vibrate
         this.onTransition = onTransition
         this.onFinished = onFinished
     }
@@ -80,20 +83,31 @@ class TimerService : Service() {
     fun startTimer(initialTotalRemaining: Int) {
         timerJob?.cancel()
         _isRunning.value = true
+        
+        // 절대 종료 시간 계산 (SystemClock.elapsedRealtime 사용 - 잠들어도 계속 흐름)
+        targetEndTimeMillis = SystemClock.elapsedRealtime() + (initialTotalRemaining * 1000L)
         _totalRemainingSeconds.value = initialTotalRemaining
         
-        // 포그라운드 서비스 시작 (무음 알림 사용 - 사용자에게 방해 안 됨)
+        // WakeLock 획득 (잠들지 않도록 CPU 강제 깨움)
+        wakeLock?.acquire(initialTotalRemaining * 1000L + 60000L) 
+
         startForeground(NotificationHelper.NOTIFICATION_ID, createSilentForegroundNotification())
 
         timerJob = serviceScope.launch {
-            while (_totalRemainingSeconds.value > 0) {
-                val currentTotalRemaining = _totalRemainingSeconds.value
+            while (true) {
+                val now = SystemClock.elapsedRealtime()
+                val remainingMillis = targetEndTimeMillis - now
+                
+                if (remainingMillis <= 0) break
+                
+                val currentTotalRemaining = (remainingMillis / 1000).toInt()
+                _totalRemainingSeconds.value = currentTotalRemaining
                 
                 val sessionElapsedSeconds = totalSecondsAtStart - currentTotalRemaining
                 val intervalSeconds = alarmIntervalMinutes * 60
                 val newBlockIndex = sessionElapsedSeconds / intervalSeconds
                 
-                // 설정된 주기(15분 등)가 되었을 때만 고순위 팝업 알림 발생
+                // 블록 전환 알림 (15분 등 주기가 지났을 때)
                 if (newBlockIndex != _currentBlockIndex.value && currentTotalRemaining > 0) {
                     val elapsedMinutes = (newBlockIndex) * alarmIntervalMinutes
                     onTransition(taskTitle, elapsedMinutes, false)
@@ -103,27 +117,32 @@ class TimerService : Service() {
                 _remainingSeconds.value = intervalSeconds - (sessionElapsedSeconds % intervalSeconds)
 
                 delay(1000L)
-                _totalRemainingSeconds.value = maxOf(0, currentTotalRemaining - 1)
             }
 
-            // 루프 종료 = 작업 완료 시점
+            // 완료 처리
             _isRunning.value = false
             _totalRemainingSeconds.value = 0
-            
-            // 세션 종료 알림 (onFinished 호출 전에 실행하여 시스템 유실 방지)
             onTransition(taskTitle, totalSecondsAtStart / 60, true)
 
-            delay(2000L) // 알림 팝업이 뜰 수 있도록 충분한 지연 시간 확보
+            delay(2000L)
             onFinished()
-            stopForeground(STOP_FOREGROUND_DETACH)
+            releaseWakeLock()
+            stopForeground(true)
             stopSelf()
+        }
+    }
+
+    private fun releaseWakeLock() {
+        if (wakeLock?.isHeld == true) {
+            wakeLock?.release()
         }
     }
 
     fun pauseTimer() {
         timerJob?.cancel()
         _isRunning.value = false
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        releaseWakeLock()
+        stopForeground(true)
     }
 
     fun stopTimer() {
@@ -131,8 +150,14 @@ class TimerService : Service() {
         _isRunning.value = false
         _totalRemainingSeconds.value = 0
         _currentBlockIndex.value = 0
-        
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        releaseWakeLock()
+        stopForeground(true)
         stopSelf()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        timerJob?.cancel()
+        releaseWakeLock()
     }
 }
