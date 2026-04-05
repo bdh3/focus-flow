@@ -5,6 +5,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.example.adhdblockscheduler.BuildConfig
 import com.example.adhdblockscheduler.ui.viewmodel.SchedulerViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -97,7 +98,7 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
             Spacer(modifier = Modifier.weight(1f))
 
             Text(
-                text = "버전 1.2.5",
+                text = "버전 ${BuildConfig.VERSION_NAME}",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
