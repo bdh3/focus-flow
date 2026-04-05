@@ -84,6 +84,11 @@ class TimerService : Service() {
         timerJob?.cancel()
         _isRunning.value = true
         
+        // 중요: 재개 시 현재 블록 인덱스를 정확히 동기화하여 중복 알림 방지
+        val intervalSeconds = alarmIntervalMinutes * 60
+        val initialElapsedSeconds = totalSecondsAtStart - initialTotalRemaining
+        _currentBlockIndex.value = if (intervalSeconds > 0) initialElapsedSeconds / intervalSeconds else 0
+
         // 절대 종료 시간 계산 (SystemClock.elapsedRealtime 사용 - 잠들어도 계속 흐름)
         targetEndTimeMillis = SystemClock.elapsedRealtime() + (initialTotalRemaining * 1000L)
         _totalRemainingSeconds.value = initialTotalRemaining
