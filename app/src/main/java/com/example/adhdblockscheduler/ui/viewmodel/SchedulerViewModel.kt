@@ -288,11 +288,19 @@ class SchedulerViewModel(
 
     fun selectTask(taskId: String?) {
         _uiState.update { state ->
-            val scheduleId = if (taskId?.startsWith("sched_") == true) taskId.removePrefix("sched_") else null
-            state.copy(
-                selectedTaskId = taskId,
-                currentScheduleId = scheduleId
-            )
+            // 이미 선택된 작업을 다시 누르면 선택 해제 (요구사항 1번)
+            if (state.selectedTaskId == taskId) {
+                state.copy(
+                    selectedTaskId = null,
+                    currentScheduleId = null
+                )
+            } else {
+                val scheduleId = if (taskId?.startsWith("sched_") == true) taskId.removePrefix("sched_") else null
+                state.copy(
+                    selectedTaskId = taskId,
+                    currentScheduleId = scheduleId
+                )
+            }
         }
     }
 

@@ -57,12 +57,12 @@ fun MainScreen(viewModel: SchedulerViewModel, startRoute: String? = null) {
                         selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
                         onClick = {
                             navController.navigate(screen.route) {
-                                // 기존 백스택을 정리하고 시작 화면으로 고정하여 탭 전환 보장
+                                // 기존 백스택을 정리하여 화면 겹침 방지
                                 popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
+                                    saveState = false // 상태 저장을 끄고 새로 로드하여 겹침 방지 (v1.2.5 개선)
                                 }
                                 launchSingleTop = true
-                                restoreState = true
+                                restoreState = false // 상태 복원도 꺼서 깨끗한 화면 보장
                             }
                         }
                     )
@@ -76,17 +76,18 @@ fun MainScreen(viewModel: SchedulerViewModel, startRoute: String? = null) {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.Calendar.route) { 
-                // 임시로 StatsScreen 대신 CalendarScreen이 들어갈 자리
                 CalendarScreen(viewModel, onNavigateToTimer = {
-                    navController.navigate(Screen.Timer.route)
+                    navController.navigate(Screen.Timer.route) {
+                        popUpTo(Screen.Calendar.route) { inclusive = false }
+                        launchSingleTop = true
+                    }
                 }) 
             }
             composable(Screen.Timer.route) { 
                 SchedulerScreen(viewModel, onNavigateToCalendar = {
                     navController.navigate(Screen.Calendar.route) {
-                        popUpTo(navController.graph.findStartDestination().id) {
-                            inclusive = false
-                        }
+                        // 캘린더로 돌아갈 때 모든 백스택을 비워 레이어 중첩 방지
+                        popUpTo(0) { inclusive = true }
                         launchSingleTop = true
                     }
                 }) 
