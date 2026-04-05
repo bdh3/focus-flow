@@ -171,8 +171,18 @@ class SchedulerViewModel(
         @Suppress("UNCHECKED_CAST")
         val allSchedules = params[5] as? List<ScheduleBlock> ?: emptyList()
 
+        // 세션이 활성화(실행 중 또는 일시정지 중 남은 시간이 있음)된 상태인지 체크
+        val isSessionActive = state.isRunning || (state.totalRemainingSeconds > 0)
+        
+        // 세션 활성 시, 현재 선택된 작업만 리스트에 보이도록 필터링 (다른 작업으로의 이탈 방지)
+        val filteredTasks = if (isSessionActive && state.selectedTaskId != null) {
+            tasks.filter { it.id == state.selectedTaskId }
+        } else {
+            tasks
+        }
+
         state.copy(
-            tasks = tasks,
+            tasks = filteredTasks,
             vibrationEnabled = vibration,
             alarmIntervalMinutes = alarmInterval,
             dailySchedules = dailySchedules,
@@ -277,6 +287,15 @@ class SchedulerViewModel(
 
     fun selectTask(taskId: String?) {
         _uiState.update { state ->
+            // 세션 진행 중(실행 중이거나 일시정지 상태에서 남은 시간이 있는 경우) 선택 변경 차단
+            val isSessionActive = state.isRunning || (state.totalRemainingSeconds > 0)
+            
+            if (isSessionActive && state.selectedTaskId != null) {
+                // 이미 선택된 작업이 있고 세션이 활성 상태라면 변경 불가
+                // UI에서 이 상태를 인지할 수 있도록 그대로 유지
+                return@update state
+            }
+
             if (state.selectedTaskId == taskId) {
                 state.copy(selectedTaskId = null, currentScheduleId = null)
             } else {

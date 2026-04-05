@@ -61,9 +61,9 @@ class TimerService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
 
     private fun createSilentForegroundNotification(): Notification {
-        return NotificationCompat.Builder(this, NotificationHelper.SILENT_CHANNEL_ID)
+        return NotificationCompat.Builder(this, NotificationHelper.SILENT_SERVICE_CHANNEL_ID)
             .setContentTitle("Focus Flow")
-            .setContentText("타이머가 시스템 정밀도로 실행 중입니다.")
+            .setContentText("타이머가 실행 중입니다.")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
@@ -106,26 +106,31 @@ class TimerService : Service() {
         scheduleAllAlarms(initialTotalRemaining)
 
         timerJob = serviceScope.launch {
+            // 첫 번째 정수 초를 즉시 반영하여 1초 지연 현상 방지
+            _totalRemainingSeconds.value = initialTotalRemaining
+            _remainingSeconds.value = if (initialTotalRemaining % intervalSeconds == 0) intervalSeconds else initialTotalRemaining % intervalSeconds
+
             while (true) {
+                delay(1000L) // 먼저 대기하고 그 다음 초를 계산
+                
                 val now = SystemClock.elapsedRealtime()
                 val remainingMillis = targetEndTimeMillis - now
                 
                 if (remainingMillis <= 0) break
                 
-                val currentTotalRemaining = (remainingMillis / 1000).toInt()
+                // +500ms 보정으로 정수 변환 시 1초가 튀는 현상 방지 (Rounding)
+                val currentTotalRemaining = ((remainingMillis + 500) / 1000).toInt()
                 _totalRemainingSeconds.value = currentTotalRemaining
                 
                 val sessionElapsedSeconds = totalSecondsAtStart - currentTotalRemaining
                 val newBlockIndex = sessionElapsedSeconds / intervalSeconds
                 
-                // 루프 내에서도 인덱스 갱신 (AlarmManager와 별개로 UI 상태 관리)
                 if (newBlockIndex != _currentBlockIndex.value && currentTotalRemaining > 0) {
                     _currentBlockIndex.value = newBlockIndex
-                    // 알림 호출은 AlarmReceiver에서 수행하므로 여기서는 생략하거나 보조적으로만 사용
                 }
 
-                _remainingSeconds.value = intervalSeconds - (sessionElapsedSeconds % intervalSeconds)
-                delay(1000L)
+                val currentBlockRemaining = intervalSeconds - (sessionElapsedSeconds % intervalSeconds)
+                _remainingSeconds.value = if (currentBlockRemaining == 0) intervalSeconds else currentBlockRemaining
             }
 
             // 완료 처리

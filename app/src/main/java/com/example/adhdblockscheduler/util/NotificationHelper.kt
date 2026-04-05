@@ -6,21 +6,24 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
-import com.example.adhdblockscheduler.R
 import com.example.adhdblockscheduler.ui.MainActivity
 
 class NotificationHelper(private val context: Context) {
     private val notificationManager =
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    private val audioManager = 
+        context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
     companion object {
-        const val ALARM_CHANNEL_ID = "block_scheduler_alarm_channel"
-        const val SILENT_CHANNEL_ID = "block_scheduler_silent_channel"
+        const val ALARM_VIBRATE_CHANNEL_ID = "block_scheduler_vibrate_channel"
+        const val ALARM_SILENT_CHANNEL_ID = "block_scheduler_silent_alarm_channel"
+        const val SILENT_SERVICE_CHANNEL_ID = "block_scheduler_service_channel"
         const val NOTIFICATION_ID = 1001
         const val FINISHED_NOTIFICATION_ID = 1002
     }
@@ -31,30 +34,41 @@ class NotificationHelper(private val context: Context) {
 
     private fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // 1. 알람 채널 (팝업, 소리, 진동 있음)
-            val alarmChannel = NotificationChannel(
-                ALARM_CHANNEL_ID,
-                "몰입 알람 (팝업/소리)",
+            // 1. 진동 허용 채널: 시스템 설정에 따라 소리가 나며, 진동도 허용됨
+            val vibrateChannel = NotificationChannel(
+                ALARM_VIBRATE_CHANNEL_ID,
+                "몰입 알람 (진동 허용)",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "주기적인 경과 알림과 완료 알림을 제공합니다."
                 enableVibration(true)
+                vibrationPattern = longArrayOf(0, 500, 200, 500)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                // 소리는 기본값(시스템 설정 따름) 유지
             }
 
-            // 2. 무음 채널 (서비스 유지용, 사용자 방해 금지)
-            val silentChannel = NotificationChannel(
-                SILENT_CHANNEL_ID,
-                "앱 실행 유지 (무음)",
+            // 2. 진동 차단 채널: 시스템 설정에 따라 소리는 나지만, 진동은 절대 하지 않음
+            val silentAlarmChannel = NotificationChannel(
+                ALARM_SILENT_CHANNEL_ID,
+                "몰입 알람 (진동 차단)",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                enableVibration(false)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                // 소리는 기본값(시스템 설정 따름) 유지
+            }
+
+            // 3. 서비스 유지용 채널
+            val serviceChannel = NotificationChannel(
+                SILENT_SERVICE_CHANNEL_ID,
+                "앱 실행 유지",
                 NotificationManager.IMPORTANCE_MIN
             ).apply {
-                description = "타이머 작동 유지를 위한 필수 알림입니다."
                 setShowBadge(false)
-                lockscreenVisibility = Notification.VISIBILITY_SECRET
             }
 
-            notificationManager.createNotificationChannel(alarmChannel)
-            notificationManager.createNotificationChannel(silentChannel)
+            notificationManager.createNotificationChannel(vibrateChannel)
+            notificationManager.createNotificationChannel(silentAlarmChannel)
+            notificationManager.createNotificationChannel(serviceChannel)
         }
     }
 
@@ -79,46 +93,33 @@ class NotificationHelper(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // 중요도가 높은 ALARM_CHANNEL 사용
-        val builder = NotificationCompat.Builder(context, ALARM_CHANNEL_ID)
+        // 앱 내 진동 설정에 따라 채널 선택
+        // Vibrate 채널은 폰이 진동/벨소리 모드일 때만 진동함 (시스템이 자동 판단)
+        // Silent 채널은 폰이 어떤 모드여도 진동하지 않음
+        val channelId = if (vibrationEnabled) ALARM_VIBRATE_CHANNEL_ID else ALARM_SILENT_CHANNEL_ID
+
+        val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
             .setContentText(message)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setContentIntent(pendingIntent)
-            .setFullScreenIntent(pendingIntent, true) // 잠금화면에서도 팝업되도록
+            .setFullScreenIntent(pendingIntent, true)
             .setAutoCancel(true)
-
-        // 진동 설정 강제 적용
-        if (vibrationEnabled) {
-            builder.setDefaults(Notification.DEFAULT_ALL)
-        } else {
-            builder.setDefaults(Notification.DEFAULT_SOUND or Notification.DEFAULT_LIGHTS)
-            builder.setVibrate(longArrayOf(0L)) // 시스템 진동 명시적 제거
-        }
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
 
         val id = if (isFinished) FINISHED_NOTIFICATION_ID else (NOTIFICATION_ID + 1)
         notificationManager.notify(id, builder.build())
         
-        // 커스텀 진동 로직도 설정을 따름
-        if (vibrationEnabled) {
+        // 수동 진동 (화면이 켜져 있거나 즉각적인 피드백이 필요할 때)
+        // 앱 설정이 ON이고, 휴대폰이 완전 무음 모드가 아닐 때만 실행
+        if (vibrationEnabled && audioManager.ringerMode != AudioManager.RINGER_MODE_SILENT) {
             if (isFinished) vibrateAlarm() else vibrateDeviceShort()
         }
     }
 
-    fun cancelForegroundNotification() {
-        notificationManager.cancel(NOTIFICATION_ID)
-    }
-
     private fun vibrateDeviceShort() {
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-            vibratorManager.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        }
-
+        val vibrator = getVibrator()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
         } else {
@@ -128,20 +129,23 @@ class NotificationHelper(private val context: Context) {
     }
 
     private fun vibrateAlarm() {
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-            vibratorManager.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        }
-
+        val vibrator = getVibrator()
         val pattern = longArrayOf(0, 500, 200, 500, 200, 800)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
         } else {
             @Suppress("DEPRECATION")
             vibrator.vibrate(pattern, -1)
+        }
+    }
+
+    private fun getVibrator(): Vibrator {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            vibratorManager.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
     }
 }
