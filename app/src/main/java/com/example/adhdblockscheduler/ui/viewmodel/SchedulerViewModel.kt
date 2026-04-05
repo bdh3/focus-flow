@@ -90,6 +90,12 @@ class SchedulerViewModel(
             viewModelScope.launch {
                 timerService?.isRunning?.collect { running ->
                     _uiState.update { it.copy(isRunning = running) }
+                    
+                    // 서비스가 실행 중이거나 남은 시간이 있는데 블록이 비어있다면 즉시 복구
+                    val state = _uiState.value
+                    if ((running || state.totalRemainingSeconds > 0) && state.timeBlocks.isEmpty()) {
+                        generateDefaultBlocks(state.activeSessionInterval, state.sessionTotalMinutes)
+                    }
                 }
             }
         }
@@ -103,6 +109,18 @@ class SchedulerViewModel(
     init {
         val intent = Intent(app, TimerService::class.java)
         app.bindService(intent, connection, Context.BIND_AUTO_CREATE)
+
+        // 설정값 실시간 구독 및 반영
+        viewModelScope.launch {
+            settingsRepository.alarmIntervalMinutes.collect { interval ->
+                _uiState.update { it.copy(alarmIntervalMinutes = interval) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.vibrationEnabled.collect { enabled ->
+                _uiState.update { it.copy(vibrationEnabled = enabled) }
+            }
+        }
     }
 
     override fun onCleared() {
