@@ -173,6 +173,7 @@ fun CalendarScreen(
                         )
                         viewModel.clearSelectedBlocks()
                         showAddTaskDialog = false
+                        onNavigateToTimer() // 생성 후 타이머로 이동 (요구사항 1번)
                     }
                 ) {
                     Text("생성")

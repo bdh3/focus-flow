@@ -12,5 +12,6 @@ data class Task(
     val description: String = "",
     val isCompleted: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
-    val scheduledDateMillis: Long = 0L // 0 means not specifically scheduled for a date
+    val scheduledDateMillis: Long = 0L, // 0 means not specifically scheduled for a date
+    val startTimeMillis: Long = 0L // 스케줄 작업의 경우 정렬을 위한 시간 필드 (요구사항 3번)
 )

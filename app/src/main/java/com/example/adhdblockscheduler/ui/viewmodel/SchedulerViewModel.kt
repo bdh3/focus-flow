@@ -118,7 +118,7 @@ class SchedulerViewModel(
                 set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
             }.timeInMillis
             
-            // 오늘 날짜의 Task와 ScheduleBlock을 결합하여 타이머 작업 목록 생성 (요구사항 1: 시간 표시 포함)
+            // 오늘 날짜의 Task와 ScheduleBlock을 결합하여 타이머 작업 목록 생성
             combine(
                 repository.getTasksForDate(today),
                 scheduleRepository.getSchedulesForDay(today)
@@ -134,19 +134,26 @@ class SchedulerViewModel(
                         endCal.get(Calendar.HOUR_OF_DAY), endCal.get(Calendar.MINUTE))
                     
                     val displayTitle = "${schedule.taskTitle} $timeStr"
+                    val scheduleId = "sched_${schedule.id}"
                     
-                    if (combined.none { it.title == displayTitle || it.title == schedule.taskTitle }) {
-                        combined.add(
-                            Task(
-                                id = "sched_${schedule.id}", 
-                                title = displayTitle, 
-                                scheduledDateMillis = today,
-                                isCompleted = schedule.isCompleted
-                            )
-                        )
+                    // ID 기반으로 중복 제거 (수정 시 이전 이름 작업이 남지 않도록)
+                    val existingIndex = combined.indexOfFirst { it.id == scheduleId }
+                    val task = Task(
+                        id = scheduleId, 
+                        title = displayTitle, 
+                        scheduledDateMillis = today,
+                        isCompleted = schedule.isCompleted,
+                        startTimeMillis = schedule.startTimeMillis // 정렬을 위해 추가
+                    )
+                    
+                    if (existingIndex != -1) {
+                        combined[existingIndex] = task
+                    } else {
+                        combined.add(task)
                     }
                 }
-                combined
+                // 시간순 정렬 (요구사항 3번)
+                combined.sortedWith(compareBy({ it.startTimeMillis == 0L }, { it.startTimeMillis }, { it.createdAt }))
             }
         },
         settingsRepository.vibrationEnabled,
@@ -213,6 +220,9 @@ class SchedulerViewModel(
                 durationMinutes = durationMinutes
             )
             scheduleRepository.insertSchedule(schedule)
+            
+            // 생성된 세션을 즉시 타이머에 로드 (요구사항 1번)
+            loadScheduledSession(schedule)
         }
     }
 
@@ -485,6 +495,9 @@ class SchedulerViewModel(
         viewModelScope.launch {
             val updated = schedule.copy(taskTitle = newTitle)
             scheduleRepository.updateSchedule(updated)
+            
+            // 현재 실행 중인 세션인 경우, TimerService에도 변경을 알리거나 
+            // 다음 UI 갱신 시 combine 로직에 의해 Task 리스트가 갱신되므로 싱크 해결됨
         }
     }
 
