@@ -95,6 +95,32 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
                 }
             )
 
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            Text("시스템 설정", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            
+            val isIgnoringBattery = viewModel.isIgnoringBatteryOptimizations()
+            
+            ListItem(
+                headlineContent = { Text("배터리 최적화 제외") },
+                supportingContent = { 
+                    Text(if (isIgnoringBattery) 
+                        "백그라운드에서 정확한 알람을 위해 배터리 제한이 해제된 상태입니다." 
+                        else "화면이 꺼졌을 때 알람이 누락되는 것을 방지하기 위해 이 설정이 권장됩니다.") 
+                },
+                trailingContent = {
+                    Button(
+                        onClick = { viewModel.requestIgnoreBatteryOptimizations() },
+                        enabled = !isIgnoringBattery,
+                        colors = if (isIgnoringBattery) 
+                            ButtonDefaults.filledTonalButtonColors() 
+                            else ButtonDefaults.buttonColors()
+                    ) {
+                        Text(if (isIgnoringBattery) "설정됨" else "설정하기")
+                    }
+                }
+            )
+
             Spacer(modifier = Modifier.weight(1f))
 
             Text(
