@@ -98,6 +98,21 @@ class SchedulerViewModel(
                     }
                 }
             }
+
+            viewModelScope.launch {
+                timerService?.config?.collect { config ->
+                    if (config != null) {
+                        _uiState.update { it.copy(
+                            sessionTotalMinutes = config.totalSecondsAtStart / 60,
+                            activeSessionInterval = config.intervalMinutes,
+                            restMinutes = config.restMinutes,
+                            vibrationEnabled = config.vibrationEnabled
+                        ) }
+                        // Note: selectedTaskId might not be easily recoverable if it was a temporary ID
+                        // but usually it starts with "sched_"
+                    }
+                }
+            }
         }
 
         override fun onServiceDisconnected(arg0: ComponentName?) {
@@ -389,17 +404,44 @@ class SchedulerViewModel(
     }
 
     fun selectTask(taskId: String?) {
-        _uiState.update { state ->
-            val isSessionActive = state.isRunning || (state.totalRemainingSeconds > 0)
-            if (isSessionActive && state.selectedTaskId != null) {
-                return@update state
-            }
+        val isSessionActive = _uiState.value.isRunning || (_uiState.value.totalRemainingSeconds > 0)
+        if (isSessionActive && _uiState.value.selectedTaskId != null) return
 
-            if (state.selectedTaskId == taskId) {
-                state.copy(selectedTaskId = null, currentScheduleId = null)
+        if (_uiState.value.selectedTaskId == taskId || taskId == null) {
+            // Unselecting or selecting null
+            _uiState.update { it.copy(
+                selectedTaskId = null,
+                currentScheduleId = null,
+                sessionTotalMinutes = 60,
+                totalRemainingSeconds = 0
+            ) }
+            generateDefaultBlocks(_uiState.value.alarmIntervalMinutes, 60)
+        } else {
+            val scheduleId = if (taskId.startsWith("sched_")) taskId.removePrefix("sched_") else null
+            if (scheduleId != null) {
+                viewModelScope.launch {
+                    scheduleRepository.getScheduleById(scheduleId)?.let { schedule ->
+                        _uiState.update { it.copy(
+                            selectedTaskId = taskId,
+                            currentScheduleId = scheduleId,
+                            sessionTotalMinutes = schedule.durationMinutes,
+                            activeSessionInterval = schedule.intervalMinutes,
+                            restMinutes = schedule.restMinutes,
+                            remainingSeconds = schedule.intervalMinutes * 60,
+                            totalRemainingSeconds = schedule.durationMinutes * 60
+                        ) }
+                        generateDefaultBlocks(schedule.intervalMinutes, schedule.durationMinutes)
+                    }
+                }
             } else {
-                val scheduleId = if (taskId?.startsWith("sched_") == true) taskId.removePrefix("sched_") else null
-                state.copy(selectedTaskId = taskId, currentScheduleId = scheduleId)
+                // Regular task
+                _uiState.update { it.copy(
+                    selectedTaskId = taskId,
+                    currentScheduleId = null,
+                    sessionTotalMinutes = 60,
+                    totalRemainingSeconds = 60 * 60 // 1 hour default
+                ) }
+                generateDefaultBlocks(_uiState.value.alarmIntervalMinutes, 60)
             }
         }
     }
@@ -450,41 +492,49 @@ class SchedulerViewModel(
             isRunning = false,
             totalRemainingSeconds = 0,
             currentBlockIndex = 0,
-            remainingSeconds = 0
+            remainingSeconds = 0,
+            selectedTaskId = null,
+            currentScheduleId = null,
+            sessionTotalMinutes = 60
         ) }
+        generateDefaultBlocks(_uiState.value.alarmIntervalMinutes, 60)
     }
 
     fun startTimer() {
         val state = _uiState.value
-        val currentInterval = state.alarmIntervalMinutes
+        val currentInterval = state.activeSessionInterval
+        val currentRest = state.restMinutes
 
         if (state.totalRemainingSeconds <= 0) {
+            // New independent session or starting selected task
             val totalSeconds = state.sessionTotalMinutes * 60
+            val title = state.tasks.find { it.id == state.selectedTaskId }?.title ?: "독립 작업"
             
             _uiState.update { it.copy(
                 totalRemainingSeconds = totalSeconds,
-                activeSessionInterval = currentInterval
+                remainingSeconds = currentInterval * 60
             ) }
             generateDefaultBlocks(currentInterval, state.sessionTotalMinutes)
             
             timerService?.setTimerConfig(
                 interval = currentInterval,
-                rest = state.restMinutes,
+                rest = currentRest,
                 totalSec = totalSeconds,
-                title = state.tasks.find { it.id == state.selectedTaskId }?.title ?: "작업",
+                title = title,
                 vibrate = state.vibrationEnabled,
-                onTransition = { title, elapsed, finished -> onBlockTransition(title, elapsed, finished) },
+                onTransition = { t, e, f -> onBlockTransition(t, e, f) },
                 onFinished = { onSessionFinished() }
             )
             timerService?.startTimer(totalSeconds)
         } else {
+            // Resuming
             timerService?.setTimerConfig(
                 interval = state.activeSessionInterval,
                 rest = state.restMinutes,
                 totalSec = state.sessionTotalMinutes * 60,
                 title = state.tasks.find { it.id == state.selectedTaskId }?.title ?: "작업",
                 vibrate = state.vibrationEnabled,
-                onTransition = { title, elapsed, finished -> onBlockTransition(title, elapsed, finished) },
+                onTransition = { t, e, f -> onBlockTransition(t, e, f) },
                 onFinished = { onSessionFinished() }
             )
             timerService?.startTimer(state.totalRemainingSeconds)
@@ -523,8 +573,12 @@ class SchedulerViewModel(
             isRunning = false,
             totalRemainingSeconds = 0,
             currentBlockIndex = 0,
-            remainingSeconds = 0
+            remainingSeconds = 0,
+            selectedTaskId = null,
+            currentScheduleId = null,
+            sessionTotalMinutes = 60
         ) }
+        generateDefaultBlocks(_uiState.value.alarmIntervalMinutes, 60)
     }
 
     fun saveSettings(interval: Int, rest: Int, vibration: Boolean, calendarSync: Boolean) {
@@ -585,6 +639,18 @@ class SchedulerViewModel(
 
     fun clearSelectedBlocks() {
         _uiState.update { it.copy(selectedBlocks = emptySet(), selectionAnchor = null) }
+    }
+
+    fun clearSelectionIfNotActive() {
+        if (!_uiState.value.isRunning && _uiState.value.totalRemainingSeconds <= 0) {
+            _uiState.update { it.copy(
+                selectedTaskId = null,
+                currentScheduleId = null,
+                sessionTotalMinutes = 60,
+                totalRemainingSeconds = 0
+            ) }
+            generateDefaultBlocks(_uiState.value.alarmIntervalMinutes, 60)
+        }
     }
 
     companion object {

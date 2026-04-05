@@ -56,6 +56,9 @@ fun MainScreen(viewModel: SchedulerViewModel, startRoute: String? = null) {
                         label = { Text(screen.label) },
                         selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
                         onClick = {
+                            if (screen == Screen.Timer) {
+                                viewModel.clearSelectionIfNotActive()
+                            }
                             navController.navigate(screen.route) {
                                 // 기존 백스택을 정리하여 화면 겹침 방지
                                 popUpTo(navController.graph.findStartDestination().id) {

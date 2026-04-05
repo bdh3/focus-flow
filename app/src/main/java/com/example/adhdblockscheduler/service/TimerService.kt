@@ -36,6 +36,17 @@ class TimerService : Service() {
     private val _currentBlockIndex = MutableStateFlow(0)
     val currentBlockIndex = _currentBlockIndex.asStateFlow()
 
+    private val _config = MutableStateFlow<TimerConfig?>(null)
+    val config = _config.asStateFlow()
+
+    data class TimerConfig(
+        val intervalMinutes: Int,
+        val restMinutes: Int,
+        val totalSecondsAtStart: Int,
+        val taskTitle: String,
+        val vibrationEnabled: Boolean
+    )
+
     // Configuration
     private var alarmIntervalMinutes = 15
     private var restMinutes = 0
@@ -88,6 +99,8 @@ class TimerService : Service() {
         this.vibrationEnabled = vibrate
         this.onTransition = onTransition
         this.onFinished = onFinished
+        
+        _config.value = TimerConfig(interval, rest, totalSec, title, vibrate)
     }
 
     fun startTimer(initialTotalRemaining: Int) {
@@ -293,6 +306,7 @@ class TimerService : Service() {
         _isRunning.value = false
         _totalRemainingSeconds.value = 0
         _currentBlockIndex.value = 0
+        _config.value = null
         releaseWakeLock()
         stopForeground(true)
         stopSelf()
