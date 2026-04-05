@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -265,7 +266,7 @@ fun CalendarScreen(
                                         },
                                         label = { Text("25/5", fontSize = 12.sp) },
                                         enabled = totalMin >= 30,
-                                        leadingIcon = { Icon(Icons.Default.Timer, null, modifier = Modifier.size(16.dp)) }
+                                        leadingIcon = { Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp)) }
                                     )
                                     AssistChip(
                                         onClick = { 
@@ -274,7 +275,7 @@ fun CalendarScreen(
                                         },
                                         label = { Text("50/10", fontSize = 12.sp) },
                                         enabled = totalMin >= 60,
-                                        leadingIcon = { Icon(Icons.Default.Bolt, null, modifier = Modifier.size(16.dp)) }
+                                        leadingIcon = { Icon(imageVector = Icons.Default.Star, contentDescription = null, modifier = Modifier.size(16.dp)) }
                                     )
                                 }
                                 
