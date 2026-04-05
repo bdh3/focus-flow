@@ -29,6 +29,7 @@ import java.util.*
 data class SchedulerUiState(
     val tasks: List<Task> = emptyList(),
     val selectedTaskId: String? = null,
+    val selectedTaskTitle: String? = null,
     val timeBlocks: List<TimeBlock> = emptyList(),
     val currentBlockIndex: Int = 0,
     val remainingSeconds: Int = 0,
@@ -106,10 +107,9 @@ class SchedulerViewModel(
                             sessionTotalMinutes = config.totalSecondsAtStart / 60,
                             activeSessionInterval = config.intervalMinutes,
                             restMinutes = config.restMinutes,
-                            vibrationEnabled = config.vibrationEnabled
+                            vibrationEnabled = config.vibrationEnabled,
+                            selectedTaskTitle = config.taskTitle
                         ) }
-                        // Note: selectedTaskId might not be easily recoverable if it was a temporary ID
-                        // but usually it starts with "sched_"
                     }
                 }
             }
@@ -198,8 +198,25 @@ class SchedulerViewModel(
 
         val isSessionActive = state.isRunning || (state.totalRemainingSeconds > 0)
         
-        // 타이머 탭에서는 항상 '오늘'의 작업만 노출 (요구사항 6번)
-        val timerTabTasks = todayTasks
+        // 타이머 탭에서는 항상 '오늘'의 작업 + 현재 선택된 작업을 노출
+        val timerTabTasks = if (state.selectedTaskId != null && todayTasks.none { it.id == state.selectedTaskId }) {
+            val selectedTask = allSchedules.find { "sched_${it.id}" == state.selectedTaskId }?.let { schedule ->
+                Task(
+                    id = "sched_${schedule.id}",
+                    title = schedule.taskTitle,
+                    scheduledDateMillis = schedule.startTimeMillis,
+                    isCompleted = schedule.isCompleted,
+                    startTimeMillis = schedule.startTimeMillis
+                )
+            }
+            if (selectedTask != null) {
+                (todayTasks + selectedTask).sortedWith(compareBy({ it.startTimeMillis == 0L }, { it.startTimeMillis }, { it.createdAt }))
+            } else {
+                todayTasks
+            }
+        } else {
+            todayTasks
+        }
 
         val effectiveAlarmInterval = if (isSessionActive) {
             state.activeSessionInterval
@@ -318,7 +335,8 @@ class SchedulerViewModel(
         durationMinutes: Int, 
         startNewSession: Boolean = false,
         intervalMinutes: Int = _uiState.value.alarmIntervalMinutes,
-        restMinutes: Int = _uiState.value.restMinutes
+        restMinutes: Int = _uiState.value.restMinutes,
+        onComplete: () -> Unit = {}
     ) {
         viewModelScope.launch {
             val startTime = Calendar.getInstance().apply {
@@ -340,6 +358,7 @@ class SchedulerViewModel(
             val scheduleWithId = schedule.copy(id = id.toString())
             
             loadScheduledSession(scheduleWithId)
+            onComplete()
         }
     }
 
@@ -351,6 +370,7 @@ class SchedulerViewModel(
         
         _uiState.update { it.copy(
             selectedTaskId = "sched_${schedule.id}",
+            selectedTaskTitle = schedule.taskTitle,
             sessionTotalMinutes = schedule.durationMinutes,
             currentScheduleId = schedule.id,
             activeSessionInterval = taskInterval,
@@ -411,6 +431,7 @@ class SchedulerViewModel(
             // Unselecting or selecting null
             _uiState.update { it.copy(
                 selectedTaskId = null,
+                selectedTaskTitle = null,
                 currentScheduleId = null,
                 sessionTotalMinutes = 60,
                 totalRemainingSeconds = 0
@@ -423,6 +444,7 @@ class SchedulerViewModel(
                     scheduleRepository.getScheduleById(scheduleId)?.let { schedule ->
                         _uiState.update { it.copy(
                             selectedTaskId = taskId,
+                            selectedTaskTitle = schedule.taskTitle,
                             currentScheduleId = scheduleId,
                             sessionTotalMinutes = schedule.durationMinutes,
                             activeSessionInterval = schedule.intervalMinutes,
@@ -435,8 +457,10 @@ class SchedulerViewModel(
                 }
             } else {
                 // Regular task
+                val taskTitle = _uiState.value.tasks.find { it.id == taskId }?.title
                 _uiState.update { it.copy(
                     selectedTaskId = taskId,
+                    selectedTaskTitle = taskTitle,
                     currentScheduleId = null,
                     sessionTotalMinutes = 60,
                     totalRemainingSeconds = 60 * 60 // 1 hour default
@@ -494,6 +518,7 @@ class SchedulerViewModel(
             currentBlockIndex = 0,
             remainingSeconds = 0,
             selectedTaskId = null,
+            selectedTaskTitle = null,
             currentScheduleId = null,
             sessionTotalMinutes = 60
         ) }
@@ -502,13 +527,45 @@ class SchedulerViewModel(
 
     fun startTimer() {
         val state = _uiState.value
+        
+        // 만약 선택된 태스크가 없고 현재 남은 시간이 0이라면 (완전 신규 독립 작업)
+        if (state.selectedTaskId == null && state.totalRemainingSeconds <= 0) {
+            // 전역 설정에서 현재 기본 인터벌과 휴식 시간을 가져와서 새로 세팅 (오염 방지)
+            val defaultInterval = state.alarmIntervalMinutes
+            val defaultRest = state.restMinutes
+            val defaultTotalMinutes = 60 // 독립 작업은 기본 1시간으로 강제 시작
+            val totalSeconds = defaultTotalMinutes * 60
+            
+            _uiState.update { it.copy(
+                sessionTotalMinutes = defaultTotalMinutes,
+                activeSessionInterval = defaultInterval,
+                restMinutes = defaultRest,
+                totalRemainingSeconds = totalSeconds,
+                remainingSeconds = defaultInterval * 60
+            ) }
+            generateDefaultBlocks(defaultInterval, defaultTotalMinutes)
+            
+            timerService?.setTimerConfig(
+                interval = defaultInterval,
+                rest = defaultRest,
+                totalSec = totalSeconds,
+                title = "독립 작업",
+                vibrate = state.vibrationEnabled,
+                onTransition = { t, e, f -> onBlockTransition(t, e, f) },
+                onFinished = { onSessionFinished() }
+            )
+            timerService?.startTimer(totalSeconds)
+            return
+        }
+
+        // 기존에 선택된 작업이 있거나 일시정지 중인 세션 재개
         val currentInterval = state.activeSessionInterval
         val currentRest = state.restMinutes
 
         if (state.totalRemainingSeconds <= 0) {
-            // New independent session or starting selected task
+            // 선택된 태스크가 있는 상태에서 처음 시작
             val totalSeconds = state.sessionTotalMinutes * 60
-            val title = state.tasks.find { it.id == state.selectedTaskId }?.title ?: "독립 작업"
+            val title = state.tasks.find { it.id == state.selectedTaskId }?.title ?: "작업"
             
             _uiState.update { it.copy(
                 totalRemainingSeconds = totalSeconds,
@@ -527,7 +584,7 @@ class SchedulerViewModel(
             )
             timerService?.startTimer(totalSeconds)
         } else {
-            // Resuming
+            // 일시정지 후 재개
             timerService?.setTimerConfig(
                 interval = state.activeSessionInterval,
                 rest = state.restMinutes,
@@ -575,6 +632,7 @@ class SchedulerViewModel(
             currentBlockIndex = 0,
             remainingSeconds = 0,
             selectedTaskId = null,
+            selectedTaskTitle = null,
             currentScheduleId = null,
             sessionTotalMinutes = 60
         ) }
@@ -645,6 +703,7 @@ class SchedulerViewModel(
         if (!_uiState.value.isRunning && _uiState.value.totalRemainingSeconds <= 0) {
             _uiState.update { it.copy(
                 selectedTaskId = null,
+                selectedTaskTitle = null,
                 currentScheduleId = null,
                 sessionTotalMinutes = 60,
                 totalRemainingSeconds = 0

@@ -57,7 +57,7 @@ fun SchedulerScreen(viewModel: SchedulerViewModel, onNavigateToCalendar: () -> U
                     isRunning = uiState.isRunning,
                     progress = progress,
                     blockType = currentBlock?.type ?: BlockType.FOCUS,
-                    selectedTaskTitle = uiState.tasks.firstOrNull { it.id == uiState.selectedTaskId }?.title,
+                    selectedTaskTitle = uiState.selectedTaskTitle,
                     onToggleTimer = { viewModel.toggleTimer() },
                     onStopTimer = { viewModel.stopTimer() },
                     onSkip = { viewModel.skipBlock() }
@@ -118,7 +118,7 @@ fun SchedulerScreen(viewModel: SchedulerViewModel, onNavigateToCalendar: () -> U
                         }) {
                             Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("추가 (캘린더에서)")
+                            Text("추가")
                         }
                     }
                 }

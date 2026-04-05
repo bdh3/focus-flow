@@ -290,12 +290,13 @@ fun CalendarScreen(
                                         Slider(
                                             value = localInterval.toFloat(),
                                             onValueChange = { 
-                                                localInterval = it.toInt().coerceIn(5, totalMin - 1)
+                                                val snapped = (it.toInt() / 5) * 5
+                                                localInterval = snapped.coerceIn(5, totalMin - 1)
                                                 localRestMinutes = getValidRest(localInterval, localRestMinutes)
                                             },
                                             valueRange = 5f..(totalMin - 1).coerceAtLeast(5).toFloat(),
                                             modifier = Modifier.weight(1f),
-                                            steps = totalMin - 6
+                                            steps = if (totalMin > 10) (totalMin - 6) / 5 else 0
                                         )
                                     }
                                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -371,11 +372,11 @@ fun CalendarScreen(
                             startTimeMinute = calendar.get(Calendar.MINUTE),
                             startNewSession = true,
                             intervalMinutes = localInterval,
-                            restMinutes = if (isCycleMode) localRestMinutes else 0
+                            restMinutes = if (isCycleMode) localRestMinutes else 0,
+                            onComplete = { onNavigateToTimer() }
                         )
                         viewModel.clearSelectedBlocks()
                         showAddTaskDialog = false
-                        onNavigateToTimer()
                     }
                 ) {
                     Text("전략적 몰입 시작")

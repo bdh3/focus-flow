@@ -219,7 +219,16 @@ class TimerService : Service() {
             val nextAlarmTime = currentTime + ((elapsedAtNextAlarm - (totalSecondsAtStart - initialRemainingSeconds)) * 1000L)
 
             val intent = Intent(this, com.example.adhdblockscheduler.service.TimerAlarmReceiver::class.java).apply {
-                putExtra("taskTitle", taskTitle)
+                val isRestNext = (restSeconds > 0) && (pendingAlarms.size % 2 == 0) // size 기반은 위험할 수 있으므로 상태 전달 필요
+                // 하지만 TimerAlarmReceiver는 단순히 NotificationHelper를 호출하므로 
+                // 여기서 상태 문자열을 조립해서 보내는 것이 가장 안전
+                
+                val currentInx = pendingAlarms.size
+                val nextBlockType = if (restSeconds <= 0) "집중" 
+                                    else if (currentInx % 2 == 0) "휴식 시작" 
+                                    else "집중 재개"
+                
+                putExtra("taskTitle", "$taskTitle ($nextBlockType)")
                 putExtra("elapsedMinutes", (elapsedAtNextAlarm / 60).toInt())
                 putExtra("isFinished", false)
                 putExtra("vibrationEnabled", vibrationEnabled)
@@ -297,7 +306,8 @@ class TimerService : Service() {
         startTimer(newTotalRemaining)
         
         // 상태 알림 전송 ("휴식 시작" 또는 "집중 재개")
-        onTransition(if (isRestNext) "휴식 시작" else "집중 재개", 0, false)
+        val status = if (isRestNext) "휴식 시작" else "집중 재개"
+        onTransition("$taskTitle ($status)", 0, false)
     }
 
     fun stopTimer() {

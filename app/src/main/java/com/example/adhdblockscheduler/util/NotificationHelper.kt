@@ -79,6 +79,9 @@ class NotificationHelper(private val context: Context) {
         vibrationEnabled: Boolean
     ) {
         val title = if (isFinished) "몰입 완료! 🎉" else "몰입 중"
+        
+        // 집중/휴식 상태 판별 (elapsedMinutes가 interval의 배수인지 등으로 판단 가능하나, 
+        // Service에서 넘어오는 메시지가 더 정확하므로 taskTitle에 상태 정보가 포함되어 있는지 확인)
         val message = if (isFinished) 
             "[$taskTitle] 모든 세션을 마쳤습니다." 
         else 

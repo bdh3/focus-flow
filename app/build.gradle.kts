@@ -13,8 +13,8 @@ android {
         applicationId = "com.example.adhdblockscheduler"
         minSdk = 26
         targetSdk = 34
-        versionCode = 34
-        versionName = "1.4.6"
+        versionCode = 35
+        versionName = "1.4.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
