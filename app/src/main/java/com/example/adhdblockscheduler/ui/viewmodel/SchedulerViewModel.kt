@@ -7,26 +7,23 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.net.Uri
 import android.os.IBinder
-import android.os.PowerManager
 import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.adhdblockscheduler.model.ScheduleBlock
-import com.example.adhdblockscheduler.model.Task
-import com.example.adhdblockscheduler.model.TimeBlock
-import com.example.adhdblockscheduler.model.BlockType
-import com.example.adhdblockscheduler.data.repository.TaskRepository
-import com.example.adhdblockscheduler.data.prefs.SettingsRepository
-import com.example.adhdblockscheduler.data.repository.StatsRepository
+import com.example.adhdblockscheduler.data.model.ScheduleBlock
+import com.example.adhdblockscheduler.data.model.Task
+import com.example.adhdblockscheduler.data.model.TimeBlock
 import com.example.adhdblockscheduler.data.repository.ScheduleRepository
+import com.example.adhdblockscheduler.data.repository.SettingsRepository
+import com.example.adhdblockscheduler.data.repository.StatsRepository
+import com.example.adhdblockscheduler.data.repository.TaskRepository
 import com.example.adhdblockscheduler.service.TimerService
 import com.example.adhdblockscheduler.util.NotificationHelper
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import java.util.Calendar
-import java.util.Locale
+import java.util.*
 
 data class SchedulerUiState(
     val tasks: List<Task> = emptyList(),
@@ -44,7 +41,8 @@ data class SchedulerUiState(
     val dailySchedules: List<ScheduleBlock> = emptyList(),
     val allSchedules: List<ScheduleBlock> = emptyList(),
     val currentScheduleId: String? = null,
-    val selectionAnchor: Long? = null
+    val selectionAnchor: Long? = null,
+    val activeSessionInterval: Int = 15
 )
 
 class SchedulerViewModel(
@@ -60,48 +58,49 @@ class SchedulerViewModel(
     val selectedDate: StateFlow<Long> = _selectedDate.asStateFlow()
 
     private val notificationHelper = NotificationHelper(app)
-
+    
     private var timerService: TimerService? = null
     private var isBound = false
 
     private val connection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+        override fun onServiceConnected(className: ComponentName?, service: IBinder?) {
             val binder = service as TimerService.TimerBinder
             timerService = binder.getService()
             isBound = true
 
             viewModelScope.launch {
-                timerService?.remainingSeconds?.collect { sec ->
-                    _uiState.update { it.copy(remainingSeconds = sec) }
+                timerService?.remainingSeconds?.collect { seconds ->
+                    _uiState.update { it.copy(totalRemainingSeconds = seconds) }
+                    
+                    val interval = _uiState.value.activeSessionInterval * 60
+                    if (interval > 0) {
+                        val currentIdx = (_uiState.value.sessionTotalMinutes * 60 - seconds - 1).coerceAtLeast(0) / interval
+                        val blockRemaining = seconds % interval
+                        
+                        _uiState.update { it.copy(
+                            currentBlockIndex = currentIdx.coerceAtMost(it.timeBlocks.size - 1),
+                            remainingSeconds = if (seconds > 0 && blockRemaining == 0) interval else blockRemaining
+                        ) }
+                    }
                 }
             }
-            viewModelScope.launch {
-                timerService?.totalRemainingSeconds?.collect { sec ->
-                    _uiState.update { it.copy(totalRemainingSeconds = sec) }
-                }
-            }
+
             viewModelScope.launch {
                 timerService?.isRunning?.collect { running ->
                     _uiState.update { it.copy(isRunning = running) }
                 }
             }
-            viewModelScope.launch {
-                timerService?.currentBlockIndex?.collect { index ->
-                    _uiState.update { it.copy(currentBlockIndex = index) }
-                }
-            }
         }
 
-        override fun onServiceDisconnected(name: ComponentName?) {
-            timerService = null
+        override fun onServiceDisconnected(arg0: ComponentName?) {
             isBound = false
+            timerService = null
         }
     }
 
     init {
-        Intent(app, TimerService::class.java).also { intent ->
-            app.bindService(intent, connection, Context.BIND_AUTO_CREATE)
-        }
+        val intent = Intent(app, TimerService::class.java)
+        app.bindService(intent, connection, Context.BIND_AUTO_CREATE)
     }
 
     override fun onCleared() {
@@ -115,9 +114,9 @@ class SchedulerViewModel(
     @OptIn(ExperimentalCoroutinesApi::class)
     val uiState: StateFlow<SchedulerUiState> = combine(
         _uiState,
-        _selectedDate.flatMapLatest { 
+        _selectedDate.flatMapLatest { dateMillis ->
             val today = Calendar.getInstance().apply {
-                timeInMillis = it
+                timeInMillis = dateMillis
                 set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
             }.timeInMillis
             
@@ -161,29 +160,26 @@ class SchedulerViewModel(
         _selectedDate.flatMapLatest { scheduleRepository.getSchedulesForDay(it) },
         scheduleRepository.getAllSchedules()
     ) { params ->
-        val state = params[0] as? SchedulerUiState ?: SchedulerUiState()
+        val state = params[0] as SchedulerUiState
         @Suppress("UNCHECKED_CAST")
-        val tasks = params[1] as? List<Task> ?: emptyList()
-        val vibration = params[2] as? Boolean ?: true
-        val alarmInterval = params[3] as? Int ?: 15
+        val tasks = params[1] as List<Task>
+        val vibration = params[2] as Boolean
+        val alarmInterval = params[3] as Int
         @Suppress("UNCHECKED_CAST")
-        val dailySchedules = params[4] as? List<ScheduleBlock> ?: emptyList()
+        val dailySchedules = params[4] as List<ScheduleBlock>
         @Suppress("UNCHECKED_CAST")
-        val allSchedules = params[5] as? List<ScheduleBlock> ?: emptyList()
+        val allSchedules = params[5] as List<ScheduleBlock>
 
-        // 세션이 활성화(실행 중 또는 일시정지 중 남은 시간이 있음)된 상태인지 체크
         val isSessionActive = state.isRunning || (state.totalRemainingSeconds > 0)
         
-        // 세션 활성 시, 현재 선택된 작업만 리스트에 보이도록 필터링 (다른 작업으로의 이탈 방지)
         val filteredTasks = if (isSessionActive && state.selectedTaskId != null) {
             tasks.filter { it.id == state.selectedTaskId }
         } else {
             tasks
         }
 
-        // 세션이 활성 상태일 때는 외부 설정 변경이 현재 세션의 인터벌에 영향을 주지 않도록 고정
         val effectiveAlarmInterval = if (isSessionActive) {
-            state.alarmIntervalMinutes
+            state.activeSessionInterval
         } else {
             alarmInterval
         }
@@ -201,31 +197,21 @@ class SchedulerViewModel(
         initialValue = SchedulerUiState()
     )
 
-    fun generateDefaultBlocks(interval: Int, totalMinutes: Int) {
-        val blocksCount = totalMinutes / interval
-        val blocks = List(blocksCount) { index ->
-            TimeBlock(
-                id = index.toString(),
-                startTime = System.currentTimeMillis() + (index * interval * 60 * 1000L),
-                durationMinutes = interval,
-                type = BlockType.FOCUS,
-                isCompleted = false
-            )
+    private fun generateDefaultBlocks(intervalMinutes: Int, totalMinutes: Int) {
+        val blocks = mutableListOf<TimeBlock>()
+        val numBlocks = (totalMinutes + intervalMinutes - 1) / intervalMinutes
+        for (i in 0 until numBlocks) {
+            blocks.add(TimeBlock(i, intervalMinutes * 60))
         }
-        _uiState.update { it.copy(
-            timeBlocks = blocks,
-            currentBlockIndex = 0,
-            remainingSeconds = interval * 60,
-            totalRemainingSeconds = totalMinutes * 60
-        ) }
+        _uiState.update { it.copy(timeBlocks = blocks) }
     }
 
-    fun addSchedule(taskTitle: String, durationMinutes: Int, hourOfDay: Int, startMinutes: Int) {
+    fun addSchedule(taskTitle: String, startTimeHour: Int, startTimeMinute: Int, durationMinutes: Int) {
         viewModelScope.launch {
             val startTime = Calendar.getInstance().apply {
                 timeInMillis = _selectedDate.value
-                set(Calendar.HOUR_OF_DAY, hourOfDay)
-                set(Calendar.MINUTE, startMinutes)
+                set(Calendar.HOUR_OF_DAY, startTimeHour)
+                set(Calendar.MINUTE, startTimeMinute)
                 set(Calendar.SECOND, 0)
                 set(Calendar.MILLISECOND, 0)
             }.timeInMillis
@@ -243,15 +229,17 @@ class SchedulerViewModel(
     fun loadScheduledSession(schedule: ScheduleBlock) {
         if (_uiState.value.isRunning) return
         
+        val currentInterval = _uiState.value.alarmIntervalMinutes
         _uiState.update { it.copy(
             selectedTaskId = "sched_${schedule.id}",
             sessionTotalMinutes = schedule.durationMinutes,
             currentScheduleId = schedule.id,
-            remainingSeconds = it.alarmIntervalMinutes * 60,
+            activeSessionInterval = currentInterval,
+            remainingSeconds = currentInterval * 60,
             totalRemainingSeconds = schedule.durationMinutes * 60
         ) }
         
-        generateDefaultBlocks(_uiState.value.alarmIntervalMinutes, schedule.durationMinutes)
+        generateDefaultBlocks(currentInterval, schedule.durationMinutes)
     }
 
     fun startNewSession(taskTitle: String, totalMinutes: Int, hourOfDay: Int? = null) {
@@ -275,16 +263,19 @@ class SchedulerViewModel(
                 startTimeMillis = startTime,
                 durationMinutes = totalMinutes
             )
-            scheduleRepository.insertSchedule(newSchedule)
+            val id = scheduleRepository.insertSchedule(newSchedule)
+            val scheduleWithId = newSchedule.copy(id = id.toString())
             
+            val currentInterval = _uiState.value.alarmIntervalMinutes
             _uiState.update { it.copy(
-                selectedTaskId = "sched_${newSchedule.id}",
-                currentScheduleId = newSchedule.id,
+                selectedTaskId = "sched_${scheduleWithId.id}",
+                currentScheduleId = scheduleWithId.id,
                 sessionTotalMinutes = totalMinutes,
-                totalRemainingSeconds = 0 
+                activeSessionInterval = currentInterval,
+                totalRemainingSeconds = totalMinutes * 60
             ) }
             
-            loadScheduledSession(newSchedule)
+            generateDefaultBlocks(currentInterval, totalMinutes)
         }
     }
 
@@ -294,12 +285,8 @@ class SchedulerViewModel(
 
     fun selectTask(taskId: String?) {
         _uiState.update { state ->
-            // 세션 진행 중(실행 중이거나 일시정지 상태에서 남은 시간이 있는 경우) 선택 변경 차단
             val isSessionActive = state.isRunning || (state.totalRemainingSeconds > 0)
-            
             if (isSessionActive && state.selectedTaskId != null) {
-                // 이미 선택된 작업이 있고 세션이 활성 상태라면 변경 불가
-                // UI에서 이 상태를 인지할 수 있도록 그대로 유지
                 return@update state
             }
 
@@ -320,11 +307,13 @@ class SchedulerViewModel(
 
     fun deleteTask(task: Task) {
         viewModelScope.launch {
-            repository.deleteTask(task)
             if (task.id.startsWith("sched_")) {
                 val scheduleId = task.id.removePrefix("sched_")
-                val schedule = scheduleRepository.getScheduleById(scheduleId)
-                if (schedule != null) scheduleRepository.deleteSchedule(schedule)
+                scheduleRepository.getScheduleById(scheduleId)?.let {
+                    scheduleRepository.deleteSchedule(it)
+                }
+            } else {
+                repository.deleteTask(task)
             }
         }
     }
@@ -333,24 +322,19 @@ class SchedulerViewModel(
         viewModelScope.launch {
             if (task.id.startsWith("sched_")) {
                 val scheduleId = task.id.removePrefix("sched_")
-                val schedule = scheduleRepository.getScheduleById(scheduleId)
-                if (schedule != null) {
-                    scheduleRepository.updateSchedule(schedule.copy(isCompleted = !schedule.isCompleted))
+                scheduleRepository.getScheduleById(scheduleId)?.let { current ->
+                    scheduleRepository.updateSchedule(current.copy(isCompleted = !current.isCompleted))
                 }
             } else {
-                repository.updateTaskCompletion(task.id, !task.isCompleted)
+                repository.updateTask(task.copy(isCompleted = !task.isCompleted))
             }
         }
     }
 
     fun toggleTimer() {
-        val state = _uiState.value
-        if (state.isRunning) {
+        if (_uiState.value.isRunning) {
             pauseTimer()
         } else {
-            if (state.totalRemainingSeconds == 0) {
-                generateDefaultBlocks(state.alarmIntervalMinutes, state.sessionTotalMinutes)
-            }
             startTimer()
         }
     }
@@ -359,30 +343,21 @@ class SchedulerViewModel(
         timerService?.stopTimer()
         _uiState.update { it.copy(
             isRunning = false,
-            currentBlockIndex = 0,
             totalRemainingSeconds = 0,
-            sessionTotalMinutes = 60 
+            currentBlockIndex = 0,
+            remainingSeconds = 0
         ) }
     }
 
-    private fun startTimer() {
-        val state = uiState.value 
-        val task = state.tasks.find { it.id == state.selectedTaskId }
-        val finalTitle = task?.title ?: "작업"
-        
-        timerService?.setTimerConfig(
-            interval = state.alarmIntervalMinutes,
-            totalSec = state.sessionTotalMinutes * 60,
-            title = finalTitle,
-            vibrate = state.vibrationEnabled,
-            onTransition = { title, elapsed, finished ->
-                onBlockTransition(title, elapsed, finished)
-            },
-            onFinished = {
-                onSessionFinished()
-            }
-        )
-        timerService?.startTimer(state.totalRemainingSeconds)
+    fun startTimer() {
+        val state = _uiState.value
+        if (state.totalRemainingSeconds <= 0) {
+            val totalSeconds = state.sessionTotalMinutes * 60
+            _uiState.update { it.copy(totalRemainingSeconds = totalSeconds) }
+            timerService?.startTimer(totalSeconds)
+        } else {
+            timerService?.startTimer(state.totalRemainingSeconds)
+        }
     }
 
     private fun pauseTimer() {
@@ -390,10 +365,10 @@ class SchedulerViewModel(
     }
 
     fun skipBlock() {
-        val state = uiState.value
+        val state = _uiState.value
         if (!state.isRunning) return
         
-        val intervalSeconds = state.alarmIntervalMinutes * 60
+        val intervalSeconds = state.activeSessionInterval * 60
         val nextBlockIndex = state.currentBlockIndex + 1
         val totalBlocks = state.timeBlocks.size
         
@@ -404,85 +379,59 @@ class SchedulerViewModel(
                 remainingSeconds = intervalSeconds,
                 totalRemainingSeconds = newTotalRemainingSeconds
             ) }
-            // 서비스에 즉시 반영
             timerService?.startTimer(newTotalRemainingSeconds)
         } else {
-            val task = state.tasks.find { it.id == state.selectedTaskId }
-            onBlockTransition(task?.title ?: "작업", state.sessionTotalMinutes, true)
             onSessionFinished()
-            timerService?.stopTimer()
         }
     }
 
-    private fun onBlockTransition(taskTitle: String, elapsedMinutes: Int, isFinished: Boolean) {
-        val currentState = uiState.value
+    fun onBlockTransition(taskTitle: String, elapsedMinutes: Int, isFinished: Boolean) {
         notificationHelper.showBlockTransitionNotification(
-            taskTitle = taskTitle,
-            elapsedMinutes = elapsedMinutes,
-            isFinished = isFinished,
-            vibrationEnabled = currentState.vibrationEnabled
+            taskTitle, 
+            elapsedMinutes, 
+            isFinished, 
+            _uiState.value.vibrationEnabled
         )
-        
-        if (!isFinished) {
-            viewModelScope.launch {
-                statsRepository.addFocusMinutes(currentState.alarmIntervalMinutes)
-            }
-        }
     }
 
-    private fun onSessionFinished() {
-        val currentState = _uiState.value
-        val currentTaskId = currentState.selectedTaskId
-        
-        _uiState.update { it.copy(
-            timeBlocks = it.timeBlocks.map { b -> b.copy(isCompleted = true) },
-            isRunning = false,
-            totalRemainingSeconds = 0
-        ) }
-        
-        viewModelScope.launch {
-            if (currentTaskId != null) {
-                if (currentTaskId.startsWith("sched_")) {
-                    val scheduleId = currentTaskId.removePrefix("sched_")
-                    val schedule = scheduleRepository.getScheduleById(scheduleId)
-                    if (schedule != null) {
-                        scheduleRepository.updateSchedule(schedule.copy(isCompleted = true))
-                    }
-                } else {
-                    repository.updateTaskCompletion(currentTaskId, true)
+    fun onSessionFinished() {
+        timerService?.stopTimer()
+        val currentScheduleId = _uiState.value.currentScheduleId
+        if (currentScheduleId != null) {
+            viewModelScope.launch {
+                scheduleRepository.getScheduleById(currentScheduleId)?.let {
+                    scheduleRepository.updateSchedule(it.copy(isCompleted = true))
                 }
             }
         }
+        _uiState.update { it.copy(
+            isRunning = false,
+            totalRemainingSeconds = 0,
+            currentBlockIndex = 0,
+            remainingSeconds = 0
+        ) }
     }
 
     fun saveSettings(interval: Int, vibration: Boolean, calendarSync: Boolean) {
         viewModelScope.launch {
-            settingsRepository.setAlarmIntervalMinutes(interval)
+            settingsRepository.setAlarmInterval(interval)
             settingsRepository.setVibrationEnabled(vibration)
-            _uiState.update { it.copy(
-                alarmIntervalMinutes = interval,
-                vibrationEnabled = vibration
-            ) }
+            settingsRepository.setCalendarSyncEnabled(calendarSync)
         }
     }
 
     fun isIgnoringBatteryOptimizations(): Boolean {
-        val powerManager = app.getSystemService(Context.POWER_SERVICE) as PowerManager
+        val powerManager = app.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
         return powerManager.isIgnoringBatteryOptimizations(app.packageName)
     }
 
     fun requestIgnoreBatteryOptimizations() {
-        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-            data = Uri.parse("package:${app.packageName}")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        try {
-            app.startActivity(intent)
-        } catch (e: Exception) {
-            val settingsIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (!isIgnoringBatteryOptimizations()) {
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:${app.packageName}")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
-            app.startActivity(settingsIntent)
+            app.startActivity(intent)
         }
     }
 
@@ -502,11 +451,8 @@ class SchedulerViewModel(
     fun toggleBlock(startTimeMillis: Long) {
         _uiState.update { state ->
             val anchor = state.selectionAnchor
-            
             if (anchor == null) {
                 state.copy(selectedBlocks = setOf(startTimeMillis), selectionAnchor = startTimeMillis)
-            } else if (startTimeMillis == anchor) {
-                state.copy(selectedBlocks = emptySet(), selectionAnchor = null)
             } else {
                 val start = minOf(anchor, startTimeMillis)
                 val end = maxOf(anchor, startTimeMillis)
@@ -532,7 +478,7 @@ class SchedulerViewModel(
             settingsRepository: SettingsRepository,
             statsRepository: StatsRepository,
             scheduleRepository: ScheduleRepository
-        ): androidx.lifecycle.ViewModelProvider.Factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+        ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
                 return SchedulerViewModel(app, repository, settingsRepository, statsRepository, scheduleRepository) as T
