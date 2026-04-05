@@ -11,11 +11,12 @@ import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.adhdblockscheduler.data.model.ScheduleBlock
-import com.example.adhdblockscheduler.data.model.Task
-import com.example.adhdblockscheduler.data.model.TimeBlock
+import com.example.adhdblockscheduler.model.BlockType
+import com.example.adhdblockscheduler.model.ScheduleBlock
+import com.example.adhdblockscheduler.model.Task
+import com.example.adhdblockscheduler.model.TimeBlock
 import com.example.adhdblockscheduler.data.repository.ScheduleRepository
-import com.example.adhdblockscheduler.data.repository.SettingsRepository
+import com.example.adhdblockscheduler.data.prefs.SettingsRepository
 import com.example.adhdblockscheduler.data.repository.StatsRepository
 import com.example.adhdblockscheduler.data.repository.TaskRepository
 import com.example.adhdblockscheduler.service.TimerService
@@ -201,12 +202,16 @@ class SchedulerViewModel(
         val blocks = mutableListOf<TimeBlock>()
         val numBlocks = (totalMinutes + intervalMinutes - 1) / intervalMinutes
         for (i in 0 until numBlocks) {
-            blocks.add(TimeBlock(i, intervalMinutes * 60))
+            blocks.add(TimeBlock(
+                startTime = i * intervalMinutes * 60L,
+                durationMinutes = intervalMinutes,
+                type = BlockType.FOCUS
+            ))
         }
         _uiState.update { it.copy(timeBlocks = blocks) }
     }
 
-    fun addSchedule(taskTitle: String, startTimeHour: Int, startTimeMinute: Int, durationMinutes: Int) {
+    fun addSchedule(taskTitle: String, startTimeHour: Int, startTimeMinute: Int, durationMinutes: Int, startNewSession: Boolean = false) {
         viewModelScope.launch {
             val startTime = Calendar.getInstance().apply {
                 timeInMillis = _selectedDate.value
@@ -221,8 +226,10 @@ class SchedulerViewModel(
                 startTimeMillis = startTime,
                 durationMinutes = durationMinutes
             )
-            scheduleRepository.insertSchedule(schedule)
-            loadScheduledSession(schedule)
+            val id = scheduleRepository.insertSchedule(schedule)
+            if (startNewSession) {
+                loadScheduledSession(schedule.copy(id = id.toString()))
+            }
         }
     }
 
@@ -414,7 +421,7 @@ class SchedulerViewModel(
 
     fun saveSettings(interval: Int, vibration: Boolean, calendarSync: Boolean) {
         viewModelScope.launch {
-            settingsRepository.setAlarmInterval(interval)
+            settingsRepository.setAlarmIntervalMinutes(interval)
             settingsRepository.setVibrationEnabled(vibration)
             settingsRepository.setCalendarSyncEnabled(calendarSync)
         }

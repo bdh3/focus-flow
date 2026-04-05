@@ -168,8 +168,9 @@ fun CalendarScreen(
                         viewModel.addSchedule(
                             taskTitle = taskTitle.ifBlank { "새 작업" },
                             durationMinutes = duration,
-                            hourOfDay = calendar.get(Calendar.HOUR_OF_DAY),
-                            startMinutes = calendar.get(Calendar.MINUTE)
+                            startTimeHour = calendar.get(Calendar.HOUR_OF_DAY),
+                            startTimeMinute = calendar.get(Calendar.MINUTE),
+                            startNewSession = true
                         )
                         viewModel.clearSelectedBlocks()
                         showAddTaskDialog = false
@@ -398,7 +399,7 @@ fun HourRow(
                     set(Calendar.MILLISECOND, 0)
                 }.timeInMillis
                 
-                val schedule = uiState.dailySchedules.find { s ->
+                val schedule = uiState.dailySchedules.firstOrNull { s ->
                     val sStart = s.startTimeMillis
                     val sEnd = sStart + s.durationMinutes * 60 * 1000L
                     blockStartTime >= sStart && blockStartTime < sEnd

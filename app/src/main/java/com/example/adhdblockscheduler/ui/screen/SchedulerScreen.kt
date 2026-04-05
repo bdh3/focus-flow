@@ -46,7 +46,7 @@ fun SchedulerScreen(viewModel: SchedulerViewModel, onNavigateToCalendar: () -> U
             contentPadding = PaddingValues(bottom = 32.dp)
         ) {
             item {
-                val totalSeconds = uiState.timeBlocks.sumOf { it.durationMinutes * 60 }
+                val totalSeconds = uiState.timeBlocks.sumOf { it.durationMinutes * 60L }.toInt()
                 val progress = if (totalSeconds > 0) uiState.totalRemainingSeconds.toFloat() / totalSeconds else 0f
                 val currentBlock = uiState.timeBlocks.getOrNull(uiState.currentBlockIndex)
 
@@ -56,7 +56,7 @@ fun SchedulerScreen(viewModel: SchedulerViewModel, onNavigateToCalendar: () -> U
                     isRunning = uiState.isRunning,
                     progress = progress,
                     blockType = currentBlock?.type ?: BlockType.FOCUS,
-                    selectedTaskTitle = uiState.tasks.find { it.id == uiState.selectedTaskId }?.title,
+                    selectedTaskTitle = uiState.tasks.firstOrNull { it.id == uiState.selectedTaskId }?.title,
                     onToggleTimer = { viewModel.toggleTimer() },
                     onStopTimer = { viewModel.stopTimer() },
                     onSkip = { viewModel.skipBlock() }
@@ -116,7 +116,7 @@ fun SchedulerScreen(viewModel: SchedulerViewModel, onNavigateToCalendar: () -> U
                 }
             }
 
-            items(uiState.tasks) { task ->
+            items(uiState.tasks, key = { it.id }) { task ->
                 val isSelected = uiState.selectedTaskId == task.id
                 var showDeleteDialog by remember { mutableStateOf(false) }
 
@@ -179,8 +179,8 @@ fun TimerHeader(
     val totalSec = remainingSeconds % 60
     val timeText = String.format(Locale.getDefault(), "%02d:%02d", totalMin, totalSec)
 
-    val blockMin = currentBlockRemaining / 60
-    val blockSec = currentBlockRemaining % 60
+    val blockMin = (currentBlockRemaining / 60).coerceAtLeast(0)
+    val blockSec = (currentBlockRemaining % 60).coerceAtLeast(0)
     val blockTimeText = String.format(Locale.getDefault(), "%02d:%02d", blockMin, blockSec)
 
     Card(
