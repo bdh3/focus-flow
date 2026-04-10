@@ -21,11 +21,21 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import com.example.adhdblockscheduler.ADHDBlockSchedulerApplication
 import com.example.adhdblockscheduler.ui.screen.MainScreen
 import com.example.adhdblockscheduler.ui.screen.Screen
+import com.example.adhdblockscheduler.ui.screen.SplashScreen
 import com.example.adhdblockscheduler.ui.theme.ADHDBlockSchedulerTheme
 import com.example.adhdblockscheduler.ui.viewmodel.SchedulerViewModel
+
+// Define top-level navigation routes
+sealed class RootScreen(val route: String) {
+    object Splash : RootScreen("splash")
+    object Main : RootScreen("main")
+}
 
 class MainActivity : ComponentActivity() {
     private val viewModel: SchedulerViewModel by viewModels {
@@ -42,8 +52,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
-        val startRoute = intent.getStringExtra("navigate_to") ?: Screen.Calendar.route
 
         setContent {
             ADHDBlockSchedulerTheme {
@@ -75,7 +83,19 @@ class MainActivity : ComponentActivity() {
                 }
 
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    MainScreen(viewModel = viewModel, startRoute = startRoute)
+                    val navController = rememberNavController()
+                    NavHost(navController = navController, startDestination = RootScreen.Splash.route) {
+                        composable(RootScreen.Splash.route) {
+                            SplashScreen(onTimeout = {
+                                navController.navigate(RootScreen.Main.route) {
+                                    popUpTo(RootScreen.Splash.route) { inclusive = true }
+                                }
+                            })
+                        }
+                        composable(RootScreen.Main.route) {
+                            MainScreen(viewModel = viewModel, rootNavController = navController)
+                        }
+                    }
                 }
             }
         }
@@ -87,10 +107,17 @@ class MainActivity : ComponentActivity() {
 
         val route = intent.getStringExtra("navigate_to")
         if (route != null) {
+            // Deep link handling: navigate to MainScreen and then to the specific tab
+            // This assumes MainScreen's internal NavHost can handle the route
             setContent {
                 ADHDBlockSchedulerTheme {
                     Surface(modifier = Modifier.fillMaxSize()) {
-                        MainScreen(viewModel = viewModel, startRoute = route)
+                        val navController = rememberNavController()
+                        NavHost(navController = navController, startDestination = RootScreen.Main.route) {
+                            composable(RootScreen.Main.route) {
+                                MainScreen(viewModel = viewModel, rootNavController = navController, startRoute = route)
+                            }
+                        }
                     }
                 }
             }

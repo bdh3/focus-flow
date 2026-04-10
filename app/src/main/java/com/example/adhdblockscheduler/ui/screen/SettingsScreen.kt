@@ -3,8 +3,13 @@ package com.example.adhdblockscheduler.ui.screen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -12,11 +17,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.adhdblockscheduler.BuildConfig
 import com.example.adhdblockscheduler.ui.viewmodel.SchedulerViewModel
+import com.example.adhdblockscheduler.util.VibrationPattern
 import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -24,9 +32,32 @@ import kotlin.math.abs
 fun SettingsScreen(viewModel: SchedulerViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     
+    // 화면을 벗어날 때 소리 미리보기를 중단합니다.
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.stopSoundPreview()
+        }
+    }
     var alarmInterval by remember { mutableIntStateOf(uiState.alarmIntervalMinutes) }
     var restMinutes by remember { mutableIntStateOf(uiState.restMinutes) }
+    var defaultTotalMinutes by remember { mutableIntStateOf(uiState.defaultTotalMinutes) }
     var vibrationEnabled by remember { mutableStateOf(uiState.vibrationEnabled) }
+    var soundEnabled by remember { mutableStateOf(uiState.soundEnabled) }
+    var focusPatternId by remember { mutableStateOf(uiState.focusVibrationPatternId) }
+    var restPatternId by remember { mutableStateOf(uiState.restVibrationPatternId) }
+    var finishPatternId by remember { mutableStateOf(uiState.finishVibrationPatternId) }
+    var focusSoundId by remember { mutableStateOf(uiState.focusSoundId) }
+    var restSoundId by remember { mutableStateOf(uiState.restSoundId) }
+    var finishSoundId by remember { mutableStateOf(uiState.finishSoundId) }
+
+    LaunchedEffect(uiState.focusVibrationPatternId, uiState.restVibrationPatternId, uiState.finishVibrationPatternId, uiState.focusSoundId, uiState.restSoundId, uiState.finishSoundId) {
+        focusPatternId = uiState.focusVibrationPatternId
+        restPatternId = uiState.restVibrationPatternId
+        finishPatternId = uiState.finishVibrationPatternId
+        focusSoundId = uiState.focusSoundId
+        restSoundId = uiState.restSoundId
+        finishSoundId = uiState.finishSoundId
+    }
 
     val divisorsOf60 = listOf(1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60)
 
@@ -43,16 +74,32 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
                 actions = {
                     val isModified = (uiState.alarmIntervalMinutes != alarmInterval) || 
                                      (uiState.restMinutes != restMinutes) ||
-                                     (uiState.vibrationEnabled != vibrationEnabled)
+                                     (uiState.defaultTotalMinutes != defaultTotalMinutes) ||
+                                     (uiState.vibrationEnabled != vibrationEnabled) ||
+                                     (uiState.soundEnabled != soundEnabled) ||
+                                     (uiState.focusVibrationPatternId != focusPatternId) ||
+                                     (uiState.restVibrationPatternId != restPatternId) ||
+                                     (uiState.finishVibrationPatternId != finishPatternId) ||
+                                     (uiState.focusSoundId != focusSoundId) ||
+                                     (uiState.restSoundId != restSoundId) ||
+                                     (uiState.finishSoundId != finishSoundId)
+
+                    val canSave = isModified && !uiState.isTimerActive
 
                     Button(
                         onClick = {
-                            viewModel.saveSettings(alarmInterval, restMinutes, vibrationEnabled, false)
+                            viewModel.saveSettings(alarmInterval, restMinutes, vibrationEnabled, soundEnabled, uiState.calendarSyncEnabled, focusPatternId, restPatternId, finishPatternId, focusSoundId, restSoundId, finishSoundId, defaultTotalMinutes)
                         },
                         modifier = Modifier.padding(end = 8.dp),
-                        enabled = isModified
+                        enabled = canSave
                     ) {
-                        Text(if (isModified) "저장" else "저장됨")
+                        Text(
+                            when {
+                                uiState.isTimerActive -> "진행 중 수정 불가"
+                                isModified -> "저장"
+                                else -> "저장됨"
+                            }
+                        )
                     }
                 }
             )
@@ -62,6 +109,7 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
             Card(
@@ -241,6 +289,30 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
                                     )
                                 }
                             }
+
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+
+                            // 독립 작업 총 시간 설정 추가
+                            Text("총 세션 시간 (독립 작업 시작 시)", style = MaterialTheme.typography.labelMedium)
+                            Spacer(Modifier.height(8.dp))
+                            
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                val hours = defaultTotalMinutes / 60
+                                val mins = defaultTotalMinutes % 60
+                                val timeText = if (mins == 0) "${hours}시간" else "${hours}시간 ${mins}분"
+                                
+                                Text(timeText, modifier = Modifier.width(80.dp), style = MaterialTheme.typography.bodyMedium)
+                                Slider(
+                                    value = defaultTotalMinutes.toFloat(),
+                                    onValueChange = { 
+                                        // 30분 단위로 조정
+                                        defaultTotalMinutes = (it.toInt() / 30) * 30
+                                    },
+                                    valueRange = 30f..480f, // 30분 ~ 8시간(480분)
+                                    modifier = Modifier.weight(1f),
+                                    steps = 14 // (480-30)/30 - 1 = 14 steps
+                                )
+                            }
                         }
                     }
                 }
@@ -251,6 +323,57 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
             Text("알림 및 시스템", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             
             ListItem(
+                headlineContent = { Text("소리 알림") },
+                supportingContent = { Text("구간 전환 시 선택한 알림음을 재생합니다.") },
+                trailingContent = {
+                    Switch(
+                        checked = soundEnabled,
+                        onCheckedChange = { soundEnabled = it }
+                    )
+                }
+            )
+
+            if (soundEnabled) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        SoundPatternSelector(
+                            label = "집중 시작",
+                            selectedId = focusSoundId,
+                            onSelected = { 
+                                focusSoundId = it
+                                viewModel.previewSound(it)
+                            }
+                        )
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        SoundPatternSelector(
+                            label = "휴식 시작",
+                            selectedId = restSoundId,
+                            onSelected = { 
+                                restSoundId = it
+                                viewModel.previewSound(it)
+                            }
+                        )
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        SoundPatternSelector(
+                            label = "전체 종료",
+                            selectedId = finishSoundId,
+                            onSelected = { 
+                                finishSoundId = it
+                                viewModel.previewSound(it)
+                            }
+                        )
+                    }
+                }
+            }
+
+            ListItem(
                 headlineContent = { Text("진동 알림") },
                 supportingContent = { Text("구간 전환 시 진동을 켭니다.") },
                 trailingContent = {
@@ -260,6 +383,46 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
                     )
                 }
             )
+
+            if (vibrationEnabled) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        VibrationPatternSelector(
+                            label = "집중 시작",
+                            selectedId = focusPatternId,
+                            onSelected = { 
+                                focusPatternId = it
+                                viewModel.previewVibration(it)
+                            },
+                        )
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        VibrationPatternSelector(
+                            label = "휴식 시작",
+                            selectedId = restPatternId,
+                            onSelected = { 
+                                restPatternId = it
+                                viewModel.previewVibration(it)
+                            },
+                        )
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        VibrationPatternSelector(
+                            label = "전체 종료",
+                            selectedId = finishPatternId,
+                            onSelected = { 
+                                finishPatternId = it
+                                viewModel.previewVibration(it)
+                            },
+                        )
+                    }
+                }
+            }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
@@ -287,13 +450,114 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
                 }
             )
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(32.dp))
 
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                Text(
+                    text = "Version ${BuildConfig.VERSION_NAME}",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(bottom = 24.dp, end = 16.dp),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun SoundPatternSelector(
+    label: String,
+    selectedId: String,
+    onSelected: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val patterns = com.example.adhdblockscheduler.util.SoundPattern.getAllPatterns()
+    val currentPattern = patterns.find { it.id == selectedId } ?: patterns.first()
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = true }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
-                text = "버전 ${BuildConfig.VERSION_NAME}",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(bottom = 16.dp)
+                text = currentPattern.displayName,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1
             )
+            Icon(
+                imageVector = Icons.Default.ArrowDropDown,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            patterns.forEach { pattern ->
+                DropdownMenuItem(
+                    text = { Text(pattern.displayName, style = MaterialTheme.typography.bodyMedium) },
+                    onClick = {
+                        onSelected(pattern.id)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun VibrationPatternSelector(
+    label: String,
+    selectedId: String,
+    onSelected: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val patterns = VibrationPattern.getAllPatterns()
+    val currentPattern = patterns.find { it.id == selectedId } ?: patterns.first()
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = true }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = currentPattern.displayName,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1
+            )
+            Icon(
+                imageVector = Icons.Default.ArrowDropDown,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            patterns.forEach { pattern ->
+                DropdownMenuItem(
+                    text = { Text(pattern.displayName, style = MaterialTheme.typography.bodyMedium) },
+                    onClick = {
+                        onSelected(pattern.id)
+                        expanded = false
+                    }
+                )
+            }
         }
     }
 }

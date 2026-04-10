@@ -126,14 +126,31 @@ fun SchedulerScreen(viewModel: SchedulerViewModel, onNavigateToCalendar: () -> U
                 item {
                     Text(
                         text = "현재 진행 중인 작업",
-                        style = MaterialTheme.typography.labelLarge,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                     )
                 }
             }
 
-            items(uiState.tasks, key = { it.id }) { task ->
+            val tasksToShow = if (uiState.isRunning) {
+                uiState.tasks.filter { it.id == uiState.selectedTaskId }
+            } else {
+                uiState.tasks
+            }
+
+            if (tasksToShow.isEmpty() && uiState.isRunning) {
+                item {
+                    Text(
+                        text = uiState.selectedTaskTitle ?: "작업 없음",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+            }
+
+            items(tasksToShow, key = { it.id }) { task ->
                 val isSelected = uiState.selectedTaskId == task.id
                 var showDeleteDialog by remember { mutableStateOf(false) }
 

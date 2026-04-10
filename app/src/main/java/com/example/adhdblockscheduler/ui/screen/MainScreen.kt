@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.navigation.NavController
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -24,15 +25,14 @@ sealed class Screen(val route: String, val label: String, val icon: ImageVector)
 }
 
 @Composable
-fun MainScreen(viewModel: SchedulerViewModel, startRoute: String? = null) {
-    val navController = rememberNavController()
-    val items = listOf(
-        Screen.Calendar,
-        Screen.Timer,
-        Screen.Settings
-    )
-
-    // 딥링크 또는 인텐트를 통한 탭 이동 처리 (요구사항 4번)
+fun MainScreen(
+    viewModel: SchedulerViewModel, 
+    rootNavController: NavController,
+    startRoute: String? = null
+) {
+    val navController = rememberNavController() // Internal NavController for bottom tabs
+    
+    // Handle startRoute for deep links
     LaunchedEffect(startRoute) {
         if (startRoute != null) {
             navController.navigate(startRoute) {
@@ -44,6 +44,11 @@ fun MainScreen(viewModel: SchedulerViewModel, startRoute: String? = null) {
             }
         }
     }
+    val items = listOf(
+        Screen.Calendar,
+        Screen.Timer,
+        Screen.Settings
+    )
 
     Scaffold(
         bottomBar = {
@@ -56,16 +61,16 @@ fun MainScreen(viewModel: SchedulerViewModel, startRoute: String? = null) {
                         label = { Text(screen.label) },
                         selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
                         onClick = {
-                            if (screen == Screen.Timer) {
-                                viewModel.clearSelectionIfNotActive()
+                            // If we are currently on the calendar screen and navigating to a different screen
+                            if (currentDestination?.route == Screen.Calendar.route && screen.route != Screen.Calendar.route) {
+                                viewModel.clearSelectedBlocks()
                             }
                             navController.navigate(screen.route) {
-                                // 기존 백스택을 정리하여 화면 겹침 방지
                                 popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = false // 상태 저장을 끄고 새로 로드하여 겹침 방지 (v1.2.5 개선)
+                                    saveState = true
                                 }
                                 launchSingleTop = true
-                                restoreState = false // 상태 복원도 꺼서 깨끗한 화면 보장
+                                restoreState = true
                             }
                         }
                     )
@@ -75,7 +80,7 @@ fun MainScreen(viewModel: SchedulerViewModel, startRoute: String? = null) {
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = Screen.Calendar.route,
+            startDestination = Screen.Timer.route, // Changed to Timer as per user request
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.Calendar.route) { 
@@ -99,4 +104,3 @@ fun MainScreen(viewModel: SchedulerViewModel, startRoute: String? = null) {
         }
     }
 }
-

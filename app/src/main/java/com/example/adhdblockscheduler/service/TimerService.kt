@@ -11,6 +11,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
 import androidx.core.app.NotificationCompat
+import com.example.adhdblockscheduler.model.BlockType
 import com.example.adhdblockscheduler.util.NotificationHelper
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,7 +45,14 @@ class TimerService : Service() {
         val restMinutes: Int,
         val totalSecondsAtStart: Int,
         val taskTitle: String,
-        val vibrationEnabled: Boolean
+        val vibrationEnabled: Boolean,
+        val soundEnabled: Boolean,
+        val focusVibrationPatternId: String = "focus_default",
+        val restVibrationPatternId: String = "rest_default",
+        val finishVibrationPatternId: String = "rest_default",
+        val focusSoundId: String = "default",
+        val restSoundId: String = "default",
+        val finishSoundId: String = "default"
     )
 
     // Configuration
@@ -53,7 +61,14 @@ class TimerService : Service() {
     private var totalSecondsAtStart = 0
     private var taskTitle = "작업"
     private var vibrationEnabled = true
-    private var onTransition: (String, Int, Boolean) -> Unit = { _, _, _ -> }
+    private var soundEnabled = true
+    private var focusVibrationPatternId = "focus_default"
+    private var restVibrationPatternId = "rest_default"
+    private var finishVibrationPatternId = "rest_default"
+    private var focusSoundId = "default"
+    private var restSoundId = "default"
+    private var finishSoundId = "default"
+    private var onTransition: (String, Int, Boolean, BlockType) -> Unit = { _, _, _, _ -> }
     private var onFinished: () -> Unit = {}
 
     private var targetEndTimeMillis: Long = 0
@@ -89,7 +104,14 @@ class TimerService : Service() {
         totalSec: Int,
         title: String,
         vibrate: Boolean,
-        onTransition: (String, Int, Boolean) -> Unit,
+        sound: Boolean,
+        focusPatternId: String,
+        restPatternId: String,
+        finishPatternId: String,
+        focusSound: String,
+        restSound: String,
+        finishSound: String,
+        onTransition: (String, Int, Boolean, BlockType) -> Unit,
         onFinished: () -> Unit
     ) {
         this.alarmIntervalMinutes = interval
@@ -97,10 +119,21 @@ class TimerService : Service() {
         this.totalSecondsAtStart = totalSec
         this.taskTitle = title
         this.vibrationEnabled = vibrate
+        this.soundEnabled = sound
+        this.focusVibrationPatternId = focusPatternId
+        this.restVibrationPatternId = restPatternId
+        this.finishVibrationPatternId = finishPatternId
+        this.focusSoundId = focusSound
+        this.restSoundId = restSound
+        this.finishSoundId = finishSound
         this.onTransition = onTransition
         this.onFinished = onFinished
         
-        _config.value = TimerConfig(interval, rest, totalSec, title, vibrate)
+        _config.value = TimerConfig(
+            interval, rest, totalSec, title, vibrate, sound, 
+            focusPatternId, restPatternId, finishPatternId, 
+            focusSound, restSound, finishSound
+        )
     }
 
     fun startTimer(initialTotalRemaining: Int) {
@@ -131,6 +164,11 @@ class TimerService : Service() {
 
         // AlarmManager에 중간 알람들 예약
         scheduleAllAlarms(initialTotalRemaining)
+
+        // 세션 시작 시 즉시 알람 발생 (처음 시작할 때만)
+        if (initialElapsedSeconds == 0) {
+            onTransition("$taskTitle (집중 시작)", 0, false, BlockType.FOCUS)
+        }
 
         timerJob = serviceScope.launch {
             // 첫 번째 정수 초를 즉시 반영하여 1초 지연 현상 방지
@@ -182,6 +220,9 @@ class TimerService : Service() {
             _remainingSeconds.value = 0
             _isRunning.value = false
             
+            val totalElapsedMinutes = totalSecondsAtStart / 60
+            onTransition(taskTitle, totalElapsedMinutes, true, BlockType.FOCUS)
+            
             delay(500L) // UI 업데이트 대기
             onFinished()
             releaseWakeLock()
@@ -219,19 +260,27 @@ class TimerService : Service() {
             val nextAlarmTime = currentTime + ((elapsedAtNextAlarm - (totalSecondsAtStart - initialRemainingSeconds)) * 1000L)
 
             val intent = Intent(this, com.example.adhdblockscheduler.service.TimerAlarmReceiver::class.java).apply {
-                val isRestNext = (restSeconds > 0) && (pendingAlarms.size % 2 == 0) // size 기반은 위험할 수 있으므로 상태 전달 필요
-                // 하지만 TimerAlarmReceiver는 단순히 NotificationHelper를 호출하므로 
-                // 여기서 상태 문자열을 조립해서 보내는 것이 가장 안전
-                
                 val currentInx = pendingAlarms.size
-                val nextBlockType = if (restSeconds <= 0) "집중" 
+                val currentBlockType = if (restSeconds <= 0) BlockType.FOCUS 
+                                       else if (currentInx % 2 == 0) BlockType.REST 
+                                       else BlockType.FOCUS
+                
+                val nextBlockLabel = if (restSeconds <= 0) "집중" 
                                     else if (currentInx % 2 == 0) "휴식 시작" 
                                     else "집중 재개"
                 
-                putExtra("taskTitle", "$taskTitle ($nextBlockType)")
+                putExtra("taskTitle", "$taskTitle ($nextBlockLabel)")
                 putExtra("elapsedMinutes", (elapsedAtNextAlarm / 60).toInt())
                 putExtra("isFinished", false)
                 putExtra("vibrationEnabled", vibrationEnabled)
+                putExtra("soundEnabled", soundEnabled)
+                putExtra("blockType", currentBlockType.name)
+                putExtra("focusVibrationPatternId", focusVibrationPatternId)
+                putExtra("restVibrationPatternId", restVibrationPatternId)
+                putExtra("finishVibrationPatternId", finishVibrationPatternId)
+                putExtra("focusSoundId", focusSoundId)
+                putExtra("restSoundId", restSoundId)
+                putExtra("finishSoundId", finishSoundId)
             }
             
             val pendingIntent = PendingIntent.getBroadcast(
@@ -249,6 +298,14 @@ class TimerService : Service() {
                 putExtra("elapsedMinutes", totalSecondsAtStart / 60)
                 putExtra("isFinished", true)
                 putExtra("vibrationEnabled", vibrationEnabled)
+                putExtra("soundEnabled", soundEnabled)
+                putExtra("blockType", BlockType.FOCUS.name) // Type doesn't matter much for finish
+                putExtra("focusVibrationPatternId", focusVibrationPatternId)
+                putExtra("restVibrationPatternId", restVibrationPatternId)
+                putExtra("finishVibrationPatternId", finishVibrationPatternId)
+                putExtra("focusSoundId", focusSoundId)
+                putExtra("restSoundId", restSoundId)
+                putExtra("finishSoundId", finishSoundId)
             }
             val finishPendingIntent = PendingIntent.getBroadcast(
                 this, 99999, finishIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -286,6 +343,8 @@ class TimerService : Service() {
         _totalRemainingSeconds.value = newTotalRemaining
         
         if (newTotalRemaining <= 0) {
+            val totalElapsedMinutes = totalSecondsAtStart / 60
+            onTransition(taskTitle, totalElapsedMinutes, true, BlockType.FOCUS)
             stopTimer()
             onFinished()
             return
@@ -308,7 +367,7 @@ class TimerService : Service() {
         // 상태 알림 전송 ("휴식 시작" 또는 "집중 재개")
         val status = if (isRestNext) "휴식 시작" else "집중 재개"
         val totalElapsedMinutes = (totalSecondsAtStart - newTotalRemaining) / 60
-        onTransition("$taskTitle ($status)", totalElapsedMinutes, false)
+        onTransition("$taskTitle ($status)", totalElapsedMinutes, false, if (isRestNext) BlockType.REST else BlockType.FOCUS)
     }
 
     fun stopTimer() {

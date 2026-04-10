@@ -37,8 +37,14 @@ fun CalendarScreen(
     val selectedDate by viewModel.selectedDate.collectAsState()
     var showAddTaskDialog by remember { mutableStateOf(false) }
     var editingSchedule by remember { mutableStateOf<ScheduleBlock?>(null) }
-    var isMonthlyView by remember { mutableStateOf(true) }
+    val isMonthlyView = uiState.isCalendarMonthlyView
     val context = LocalContext.current
+
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.clearSelectedBlocks()
+        }
+    }
 
     val datePickerDialog = remember(selectedDate) {
         val cal = Calendar.getInstance().apply { timeInMillis = selectedDate }
@@ -78,7 +84,7 @@ fun CalendarScreen(
                     }) {
                         Icon(imageVector = Icons.Default.Refresh, contentDescription = "오늘")
                     }
-                    IconButton(onClick = { isMonthlyView = !isMonthlyView }) {
+                    IconButton(onClick = { viewModel.setCalendarMonthlyView(!isMonthlyView) }) {
                         Icon(
                             imageVector = Icons.Default.DateRange,
                             contentDescription = if (isMonthlyView) "일간 보기" else "월간 보기",
@@ -114,7 +120,7 @@ fun CalendarScreen(
                     allSchedules = uiState.allSchedules, // 전체 일정 전달 (요구사항 1번)
                     onDateSelected = { 
                         viewModel.selectDate(it)
-                        isMonthlyView = false
+                        viewModel.setCalendarMonthlyView(false)
                     }
                 )
             } else {

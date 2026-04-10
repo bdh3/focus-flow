@@ -12,6 +12,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.adhdblockscheduler.model.BlockType
+import com.example.adhdblockscheduler.model.DailyStats
 import com.example.adhdblockscheduler.model.ScheduleBlock
 import com.example.adhdblockscheduler.model.Task
 import com.example.adhdblockscheduler.model.TimeBlock
@@ -21,6 +22,7 @@ import com.example.adhdblockscheduler.data.repository.StatsRepository
 import com.example.adhdblockscheduler.data.repository.TaskRepository
 import com.example.adhdblockscheduler.service.TimerService
 import com.example.adhdblockscheduler.util.NotificationHelper
+import com.example.adhdblockscheduler.util.VibrationPattern
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -46,7 +48,17 @@ data class SchedulerUiState(
     val currentScheduleId: String? = null,
     val selectionAnchor: Long? = null,
     val activeSessionInterval: Int = 15,
-    val restMinutes: Int = 0
+    val restMinutes: Int = 0,
+    val focusVibrationPatternId: String = "focus_default",
+    val restVibrationPatternId: String = "rest_default",
+    val finishVibrationPatternId: String = "rest_default",
+    val focusSoundId: String = "default",
+    val restSoundId: String = "default",
+    val finishSoundId: String = "default",
+    val defaultTotalMinutes: Int = 60,
+    val soundEnabled: Boolean = true,
+    val recentStats: List<DailyStats> = emptyList(),
+    val isCalendarMonthlyView: Boolean = true
 )
 
 class SchedulerViewModel(
@@ -160,6 +172,36 @@ class SchedulerViewModel(
                 _uiState.update { it.copy(vibrationEnabled = enabled) }
             }
         }
+        viewModelScope.launch {
+            settingsRepository.focusVibrationPatternId.collect { id ->
+                _uiState.update { it.copy(focusVibrationPatternId = id) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.restVibrationPatternId.collect { id ->
+                _uiState.update { it.copy(restVibrationPatternId = id) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.focusSoundId.collect { id ->
+                _uiState.update { it.copy(focusSoundId = id) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.restSoundId.collect { id ->
+                _uiState.update { it.copy(restSoundId = id) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.finishSoundId.collect { id ->
+                _uiState.update { it.copy(finishSoundId = id) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.defaultTotalMinutes.collect { mins ->
+                _uiState.update { it.copy(defaultTotalMinutes = mins) }
+            }
+        }
     }
 
     override fun onCleared() {
@@ -174,10 +216,18 @@ class SchedulerViewModel(
     val uiState: StateFlow<SchedulerUiState> = combine(
         _uiState,
         settingsRepository.vibrationEnabled,
+        settingsRepository.soundEnabled,
         settingsRepository.alarmIntervalMinutes,
         settingsRepository.restMinutes,
+        settingsRepository.focusVibrationPatternId,
+        settingsRepository.restVibrationPatternId,
+        settingsRepository.focusSoundId,
+        settingsRepository.restSoundId,
+        settingsRepository.finishSoundId,
+        settingsRepository.defaultTotalMinutes,
         _selectedDate.flatMapLatest { scheduleRepository.getSchedulesForDay(it) },
         scheduleRepository.getAllSchedules(),
+        statsRepository.recentStats,
         // 타이머 탭 전용: 무조건 '오늘'의 태스크만 가져옴 (요구사항 6번)
         repository.getTasksForDate(getTodayStartMillis()).flatMapLatest { todayTasks ->
             scheduleRepository.getSchedulesForDay(getTodayStartMillis()).map { todaySchedules ->
@@ -187,14 +237,23 @@ class SchedulerViewModel(
     ) { params ->
         val state = params[0] as SchedulerUiState
         val vibration = params[1] as Boolean
-        val alarmInterval = params[2] as Int
-        val defaultRest = params[3] as Int
+        val sound = params[2] as Boolean
+        val alarmInterval = params[3] as Int
+        val defaultRest = params[4] as Int
+        val focusPatternId = params[5] as String
+        val restPatternId = params[6] as String
+        val focusSndId = params[7] as String
+        val restSndId = params[8] as String
+        val finishSndId = params[9] as String
+        val defTotalMins = params[10] as Int
         @Suppress("UNCHECKED_CAST")
-        val dailySchedules = params[4] as List<ScheduleBlock>
+        val dailySchedules = params[11] as List<ScheduleBlock>
         @Suppress("UNCHECKED_CAST")
-        val allSchedules = params[5] as List<ScheduleBlock>
+        val allSchedules = params[12] as List<ScheduleBlock>
         @Suppress("UNCHECKED_CAST")
-        val todayTasks = params[6] as List<Task>
+        val recentStats = params[13] as List<DailyStats>
+        @Suppress("UNCHECKED_CAST")
+        val todayTasks = params[14] as List<Task>
 
         val isSessionActive = state.isRunning || (state.totalRemainingSeconds > 0)
         val isTimerActive = state.isTimerActive
@@ -246,10 +305,19 @@ class SchedulerViewModel(
         state.copy(
             tasks = timerTabTasks,
             vibrationEnabled = vibration,
+            soundEnabled = sound,
             alarmIntervalMinutes = effectiveAlarmInterval,
             restMinutes = effectiveRest,
+            focusVibrationPatternId = focusPatternId,
+            restVibrationPatternId = restPatternId,
+            focusSoundId = focusSndId,
+            restSoundId = restSndId,
+            finishSoundId = finishSndId,
+            defaultTotalMinutes = defTotalMins,
             dailySchedules = dailySchedules,
-            allSchedules = allSchedules
+            allSchedules = allSchedules,
+            recentStats = recentStats,
+            isCalendarMonthlyView = state.isCalendarMonthlyView
         )
     }.stateIn(
         scope = viewModelScope,
@@ -547,7 +615,7 @@ class SchedulerViewModel(
             // 전역 설정에서 현재 기본 인터벌과 휴식 시간을 가져와서 새로 세팅 (오염 방지)
             val defaultInterval = state.alarmIntervalMinutes
             val defaultRest = state.restMinutes
-            val defaultTotalMinutes = 60 // 독립 작업은 기본 1시간으로 강제 시작
+            val defaultTotalMinutes = state.defaultTotalMinutes
             val totalSeconds = defaultTotalMinutes * 60
             
             _uiState.update { it.copy(
@@ -565,7 +633,14 @@ class SchedulerViewModel(
                 totalSec = totalSeconds,
                 title = "독립 작업",
                 vibrate = state.vibrationEnabled,
-                onTransition = { t, e, f -> onBlockTransition(t, e, f) },
+                sound = state.soundEnabled,
+                focusPatternId = state.focusVibrationPatternId,
+                restPatternId = state.restVibrationPatternId,
+                finishPatternId = state.finishVibrationPatternId,
+                focusSound = state.focusSoundId,
+                restSound = state.restSoundId,
+                finishSound = state.finishSoundId,
+                onTransition = { t, e, f, bt -> onBlockTransition(t, e, f, bt) },
                 onFinished = { onSessionFinished() }
             )
             timerService?.startTimer(totalSeconds)
@@ -594,7 +669,14 @@ class SchedulerViewModel(
                 totalSec = totalSeconds,
                 title = title,
                 vibrate = state.vibrationEnabled,
-                onTransition = { t, e, f -> onBlockTransition(t, e, f) },
+                sound = state.soundEnabled,
+                focusPatternId = state.focusVibrationPatternId,
+                restPatternId = state.restVibrationPatternId,
+                finishPatternId = state.finishVibrationPatternId,
+                focusSound = state.focusSoundId,
+                restSound = state.restSoundId,
+                finishSound = state.finishSoundId,
+                onTransition = { t, e, f, bt -> onBlockTransition(t, e, f, bt) },
                 onFinished = { onSessionFinished() }
             )
             timerService?.startTimer(totalSeconds)
@@ -607,7 +689,14 @@ class SchedulerViewModel(
                 totalSec = state.sessionTotalMinutes * 60,
                 title = title,
                 vibrate = state.vibrationEnabled,
-                onTransition = { t, e, f -> onBlockTransition(t, e, f) },
+                sound = state.soundEnabled,
+                focusPatternId = state.focusVibrationPatternId,
+                restPatternId = state.restVibrationPatternId,
+                finishPatternId = state.finishVibrationPatternId,
+                focusSound = state.focusSoundId,
+                restSound = state.restSoundId,
+                finishSound = state.finishSoundId,
+                onTransition = { t, e, f, bt -> onBlockTransition(t, e, f, bt) },
                 onFinished = { onSessionFinished() }
             )
             timerService?.startTimer(state.totalRemainingSeconds)
@@ -623,20 +712,39 @@ class SchedulerViewModel(
         timerService?.skipToNext()
     }
 
-    fun onBlockTransition(taskTitle: String, elapsedMinutes: Int, isFinished: Boolean) {
+    fun onBlockTransition(taskTitle: String, elapsedMinutes: Int, isFinished: Boolean, blockType: BlockType) {
+        val state = _uiState.value
+        val focusPattern = VibrationPattern.fromId(state.focusVibrationPatternId).pattern
+        val restPattern = VibrationPattern.fromId(state.restVibrationPatternId).pattern
+        val finishPattern = VibrationPattern.fromId(state.finishVibrationPatternId).pattern
+
         notificationHelper.showBlockTransitionNotification(
-            taskTitle, 
-            elapsedMinutes, 
-            isFinished, 
-            _uiState.value.vibrationEnabled
+            taskTitle = taskTitle, 
+            elapsedMinutes = elapsedMinutes, 
+            isFinished = isFinished,
+            currentBlockType = blockType,
+            focusVibrationPattern = focusPattern,
+            restVibrationPattern = restPattern,
+            finishVibrationPattern = finishPattern,
+            focusSoundId = state.focusSoundId,
+            restSoundId = state.restSoundId,
+            finishSoundId = state.finishSoundId,
+            vibrationEnabled = state.vibrationEnabled,
+            soundEnabled = state.soundEnabled
         )
     }
 
     fun onSessionFinished() {
         timerService?.stopTimer()
         val currentScheduleId = _uiState.value.currentScheduleId
-        if (currentScheduleId != null) {
-            viewModelScope.launch {
+        val focusedMinutes = _uiState.value.sessionTotalMinutes
+        
+        viewModelScope.launch {
+            // 통계 저장
+            statsRepository.addFocusMinutes(focusedMinutes)
+            statsRepository.incrementTaskCount()
+
+            if (currentScheduleId != null) {
                 scheduleRepository.getScheduleById(currentScheduleId)?.let {
                     scheduleRepository.updateSchedule(it.copy(isCompleted = true))
                 }
@@ -656,13 +764,62 @@ class SchedulerViewModel(
         generateDefaultBlocks(_uiState.value.alarmIntervalMinutes, 60)
     }
 
-    fun saveSettings(interval: Int, rest: Int, vibration: Boolean, calendarSync: Boolean) {
+    fun saveSettings(
+        interval: Int,
+        rest: Int,
+        vibration: Boolean,
+        sound: Boolean,
+        calendarSync: Boolean,
+        focusPatternId: String,
+        restPatternId: String,
+        finishPatternId: String,
+        focusSoundId: String,
+        restSoundId: String,
+        finishSoundId: String,
+        defaultTotalMinutes: Int
+    ) {
         viewModelScope.launch {
             settingsRepository.setAlarmIntervalMinutes(interval)
             settingsRepository.setRestMinutes(rest)
             settingsRepository.setVibrationEnabled(vibration)
+            settingsRepository.setSoundEnabled(sound)
             settingsRepository.setCalendarSyncEnabled(calendarSync)
+            settingsRepository.setFocusVibrationPatternId(focusPatternId)
+            settingsRepository.setRestVibrationPatternId(restPatternId)
+            settingsRepository.setFinishVibrationPatternId(finishPatternId)
+            settingsRepository.setFocusSoundId(focusSoundId)
+            settingsRepository.setRestSoundId(restSoundId)
+            settingsRepository.setFinishSoundId(finishSoundId)
+            settingsRepository.setDefaultTotalMinutes(defaultTotalMinutes)
+
+            _uiState.update { it.copy(
+                alarmIntervalMinutes = interval,
+                restMinutes = rest,
+                vibrationEnabled = vibration,
+                soundEnabled = sound,
+                calendarSyncEnabled = calendarSync,
+                focusVibrationPatternId = focusPatternId,
+                restVibrationPatternId = restPatternId,
+                finishVibrationPatternId = finishPatternId,
+                focusSoundId = focusSoundId,
+                restSoundId = restSoundId,
+                finishSoundId = finishSoundId,
+                defaultTotalMinutes = defaultTotalMinutes
+            ) }
         }
+    }
+
+    fun previewVibration(patternId: String) {
+        val pattern = VibrationPattern.fromId(patternId).pattern
+        notificationHelper.vibratePreview(pattern)
+    }
+
+    fun previewSound(soundId: String) {
+        notificationHelper.playSound(soundId)
+    }
+
+    fun stopSoundPreview() {
+        notificationHelper.stopSound()
     }
 
     fun isIgnoringBatteryOptimizations(): Boolean {
@@ -698,6 +855,9 @@ class SchedulerViewModel(
             val anchor = state.selectionAnchor
             if (anchor == null) {
                 state.copy(selectedBlocks = setOf(startTimeMillis), selectionAnchor = startTimeMillis)
+            } else if (anchor == startTimeMillis) {
+                // Re-tapping the anchor clears the selection
+                state.copy(selectedBlocks = emptySet(), selectionAnchor = null)
             } else {
                 val start = Math.min(anchor, startTimeMillis)
                 val end = Math.max(anchor, startTimeMillis)
@@ -714,6 +874,10 @@ class SchedulerViewModel(
 
     fun clearSelectedBlocks() {
         _uiState.update { it.copy(selectedBlocks = emptySet(), selectionAnchor = null) }
+    }
+
+    fun setCalendarMonthlyView(isMonthly: Boolean) {
+        _uiState.update { it.copy(isCalendarMonthlyView = isMonthly) }
     }
 
     fun clearSelectionIfNotActive() {

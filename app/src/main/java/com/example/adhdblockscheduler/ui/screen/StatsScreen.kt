@@ -11,63 +11,107 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.adhdblockscheduler.model.DailyStats
 import com.example.adhdblockscheduler.ui.viewmodel.SchedulerViewModel
+import java.time.LocalDate
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StatsScreen(viewModel: SchedulerViewModel) {
     val uiState by viewModel.uiState.collectAsState()
-    
-    // 실제로는 별도의 StatsViewModel을 두는 것이 좋지만, 
-    // 여기서는 간단히 SchedulerViewModel이나 Repository를 통해 데이터를 가져온다고 가정합니다.
-    // 현재는 uiState에 통계 데이터가 없으므로 샘플 데이터를 표시하거나 
-    // 추후 ViewModel에 추가할 예정입니다.
+    val today = LocalDate.now().toString()
+    val todayStats = uiState.recentStats.find { it.date == today }
 
     Scaffold(
         topBar = {
             TopAppBar(title = { Text("집중 통계") })
         }
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .padding(16.dp)
         ) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                 ) {
-                    Text("오늘 총 집중 시간", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        text = "0분", // 추후 실데이터 연결
-                        style = MaterialTheme.typography.displayMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("오늘 총 집중 시간", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = "${todayStats?.totalFocusMinutes ?: 0}분",
+                            style = MaterialTheme.typography.displayMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        if (todayStats != null) {
+                            Text(
+                                text = "완료된 작업: ${todayStats.completedTasksCount}개",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
                 }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text(
+                    text = "최근 7일 기록",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            if (uiState.recentStats.isEmpty()) {
+                item {
+                    Text(
+                        text = "아직 기록이 없습니다. 집중 블록을 완료해 보세요!",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            } else {
+                items(uiState.recentStats) { stats ->
+                    StatItem(stats.date, stats.totalFocusMinutes, stats.completedTasksCount)
+                }
+            }
+        }
+    }
+}
 
-            Text(
-                text = "최근 7일 기록",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-
-            // 샘플 리스트 (데이터 연결 전)
-            Text(
-                text = "아직 기록이 없습니다. 집중 블록을 완료해 보세요!",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.outline
-            )
+@Composable
+fun StatItem(date: String, minutes: Int, tasks: Int) {
+    OutlinedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(text = date, style = MaterialTheme.typography.bodySmall)
+                Text(text = "${minutes}분 집중", style = MaterialTheme.typography.titleMedium)
+            }
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                shape = MaterialTheme.shapes.small
+            ) {
+                Text(
+                    text = "${tasks}개 완료",
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
         }
     }
 }
