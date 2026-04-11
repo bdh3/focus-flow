@@ -15,9 +15,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
@@ -56,7 +59,17 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            FocusFlowTheme {
+            val uiState by viewModel.uiState.collectAsState()
+            val darkTheme = when (uiState.darkMode) {
+                1 -> false
+                2 -> true
+                else -> androidx.compose.foundation.isSystemInDarkTheme()
+            }
+
+            FocusFlowTheme(
+                darkTheme = darkTheme,
+                fontSizeScale = uiState.fontSizeScale
+            ) {
                 val context = LocalContext.current
                 val launcher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission()
@@ -112,7 +125,17 @@ class MainActivity : ComponentActivity() {
             // Deep link handling: navigate to MainScreen and then to the specific tab
             // This assumes MainScreen's internal NavHost can handle the route
             setContent {
-                FocusFlowTheme {
+                val uiState by viewModel.uiState.collectAsState()
+                val darkTheme = when (uiState.darkMode) {
+                    1 -> false
+                    2 -> true
+                    else -> isSystemInDarkTheme()
+                }
+
+                FocusFlowTheme(
+                darkTheme = darkTheme,
+                fontSizeScale = uiState.fontSizeScale
+            ) {
                     Surface(modifier = Modifier.fillMaxSize()) {
                         val navController = rememberNavController()
                         NavHost(navController = navController, startDestination = RootScreen.Main.route) {

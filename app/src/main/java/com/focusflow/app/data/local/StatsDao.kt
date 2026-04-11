@@ -10,7 +10,7 @@ interface StatsDao {
     suspend fun getStatsForDate(date: String): DailyStats?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertOrUpdateStats(stats: DailyStats)
+    suspend fun insertOrUpdateStats(stats: DailyStats): Long
 
     @Query("SELECT * FROM daily_stats ORDER BY date DESC LIMIT 7")
     fun getRecentStats(): Flow<List<DailyStats>>

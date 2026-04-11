@@ -58,7 +58,11 @@ data class SchedulerUiState(
     val defaultTotalMinutes: Int = 60,
     val soundEnabled: Boolean = true,
     val recentStats: List<DailyStats> = emptyList(),
-    val isCalendarMonthlyView: Boolean = false
+    val isCalendarMonthlyView: Boolean = false,
+    val darkMode: Int = 0,
+    val fontSizeScale: Float = 1.0f,
+    val storedAlarmIntervalMinutes: Int = 15,
+    val storedRestMinutes: Int = 0
 )
 
 class SchedulerViewModel(
@@ -144,10 +148,14 @@ class SchedulerViewModel(
                     if (!isSessionActive) {
                         state.copy(
                             alarmIntervalMinutes = interval,
-                            activeSessionInterval = interval
+                            activeSessionInterval = interval,
+                            storedAlarmIntervalMinutes = interval
                         )
                     } else {
-                        state.copy(alarmIntervalMinutes = interval)
+                        state.copy(
+                            alarmIntervalMinutes = interval,
+                            storedAlarmIntervalMinutes = interval
+                        )
                     }
                 }
             }
@@ -157,14 +165,27 @@ class SchedulerViewModel(
                 _uiState.update { state ->
                     val isSessionActive = state.isRunning || state.totalRemainingSeconds > 0
                     if (!isSessionActive) {
-                        state.copy(restMinutes = rest)
+                        state.copy(
+                            restMinutes = rest,
+                            storedRestMinutes = rest
+                        )
                     } else {
-                        state.copy(restMinutes = rest)
+                        state.copy(storedRestMinutes = rest)
                     }
                 }
                 if (!_uiState.value.isRunning && _uiState.value.totalRemainingSeconds <= 0) {
                     generateDefaultBlocks(_uiState.value.alarmIntervalMinutes, _uiState.value.sessionTotalMinutes)
                 }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.darkMode.collect { mode ->
+                _uiState.update { it.copy(darkMode = mode) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.fontSizeScale.collect { scale ->
+                _uiState.update { it.copy(fontSizeScale = scale) }
             }
         }
         viewModelScope.launch {
@@ -225,6 +246,8 @@ class SchedulerViewModel(
         settingsRepository.restSoundId,
         settingsRepository.finishSoundId,
         settingsRepository.defaultTotalMinutes,
+        settingsRepository.darkMode,
+        settingsRepository.fontSizeScale,
         _selectedDate.flatMapLatest { scheduleRepository.getSchedulesForDay(it) },
         scheduleRepository.getAllSchedules(),
         statsRepository.recentStats,
@@ -246,14 +269,16 @@ class SchedulerViewModel(
         val restSndId = params[8] as String
         val finishSndId = params[9] as String
         val defTotalMins = params[10] as Int
+        val darkMode = params[11] as Int
+        val fontSizeScale = params[12] as Float
         @Suppress("UNCHECKED_CAST")
-        val dailySchedules = params[11] as List<ScheduleBlock>
+        val dailySchedules = params[13] as List<ScheduleBlock>
         @Suppress("UNCHECKED_CAST")
-        val allSchedules = params[12] as List<ScheduleBlock>
+        val allSchedules = params[14] as List<ScheduleBlock>
         @Suppress("UNCHECKED_CAST")
-        val recentStats = params[13] as List<DailyStats>
+        val recentStats = params[15] as List<DailyStats>
         @Suppress("UNCHECKED_CAST")
-        val todayTasks = params[14] as List<Task>
+        val todayTasks = params[16] as List<Task>
 
         val isSessionActive = state.isRunning || (state.totalRemainingSeconds > 0)
         val isTimerActive = state.isTimerActive
@@ -317,7 +342,11 @@ class SchedulerViewModel(
             dailySchedules = dailySchedules,
             allSchedules = allSchedules,
             recentStats = recentStats,
-            isCalendarMonthlyView = state.isCalendarMonthlyView
+            isCalendarMonthlyView = state.isCalendarMonthlyView,
+            darkMode = darkMode,
+            fontSizeScale = fontSizeScale,
+            storedAlarmIntervalMinutes = alarmInterval,
+            storedRestMinutes = defaultRest
         )
     }.stateIn(
         scope = viewModelScope,
@@ -409,6 +438,12 @@ class SchedulerViewModel(
         _uiState.update { it.copy(timeBlocks = blocks) }
     }
 
+    fun setFontSizeScale(scale: Float) {
+        viewModelScope.launch {
+            settingsRepository.setFontSizeScale(scale)
+        }
+    }
+
     fun addSchedule(
         taskTitle: String, 
         startTimeHour: Int, 
@@ -436,9 +471,11 @@ class SchedulerViewModel(
                 restMinutes = restMinutes
             )
             val id = scheduleRepository.insertSchedule(schedule)
-            val scheduleWithId = schedule.copy(id = id.toString())
             
-            loadScheduledSession(scheduleWithId)
+            if (startNewSession) {
+                val scheduleWithId = schedule.copy(id = id.toString())
+                loadScheduledSession(scheduleWithId)
+            }
             onComplete()
         }
     }
@@ -613,7 +650,7 @@ class SchedulerViewModel(
     fun startTimer() {
         val state = _uiState.value
         
-        // 만약 선택된 태스크가 없고 현재 남은 시간이 0이라면 (완전 신규 독립 작업)
+        // 만약 선택된 태스크가 없고 현재 남은 시간이 0이라면 (완전 신규 바로 몰입)
         if (state.selectedTaskId == null && state.totalRemainingSeconds <= 0) {
             // 전역 설정에서 현재 기본 인터벌과 휴식 시간을 가져와서 새로 세팅 (오염 방지)
             val defaultInterval = state.alarmIntervalMinutes
@@ -634,7 +671,7 @@ class SchedulerViewModel(
                 interval = defaultInterval,
                 rest = defaultRest,
                 totalSec = totalSeconds,
-                title = "독립 작업",
+                title = "바로 몰입",
                 vibrate = state.vibrationEnabled,
                 sound = state.soundEnabled,
                 focusPatternId = state.focusVibrationPatternId,
@@ -786,7 +823,8 @@ class SchedulerViewModel(
         focusSoundId: String,
         restSoundId: String,
         finishSoundId: String,
-        defaultTotalMinutes: Int
+        defaultTotalMinutes: Int,
+        darkMode: Int
     ) {
         viewModelScope.launch {
             settingsRepository.setAlarmIntervalMinutes(interval)
@@ -801,6 +839,7 @@ class SchedulerViewModel(
             settingsRepository.setRestSoundId(restSoundId)
             settingsRepository.setFinishSoundId(finishSoundId)
             settingsRepository.setDefaultTotalMinutes(defaultTotalMinutes)
+            settingsRepository.setDarkMode(darkMode)
 
             _uiState.update { it.copy(
                 alarmIntervalMinutes = interval,
@@ -814,7 +853,10 @@ class SchedulerViewModel(
                 focusSoundId = focusSoundId,
                 restSoundId = restSoundId,
                 finishSoundId = finishSoundId,
-                defaultTotalMinutes = defaultTotalMinutes
+                defaultTotalMinutes = defaultTotalMinutes,
+                darkMode = darkMode,
+                storedAlarmIntervalMinutes = interval,
+                storedRestMinutes = rest
             ) }
         }
     }
@@ -853,9 +895,14 @@ class SchedulerViewModel(
         }
     }
 
-    fun updateSchedule(schedule: ScheduleBlock, newTitle: String, newDuration: Int = schedule.durationMinutes) {
+    fun updateSchedule(schedule: ScheduleBlock, newTitle: String, newDuration: Int, newInterval: Int? = null, newRest: Int? = null) {
         viewModelScope.launch {
-            val updated = schedule.copy(taskTitle = newTitle, durationMinutes = newDuration)
+            val updated = schedule.copy(
+                taskTitle = newTitle, 
+                durationMinutes = newDuration,
+                intervalMinutes = newInterval ?: schedule.intervalMinutes,
+                restMinutes = newRest ?: schedule.restMinutes
+            )
             scheduleRepository.updateSchedule(updated)
         }
     }

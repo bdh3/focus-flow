@@ -13,14 +13,14 @@ interface TaskDao {
     fun getTasksForDate(dateMillis: Long): Flow<List<Task>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertTask(task: Task)
+    suspend fun insertTask(task: Task): Long
 
     @Update
-    suspend fun updateTask(task: Task)
+    suspend fun updateTask(task: Task): Int
 
     @Delete
-    suspend fun deleteTask(task: Task)
+    suspend fun deleteTask(task: Task): Int
 
     @Query("UPDATE tasks SET isCompleted = :isCompleted WHERE id = :taskId")
-    suspend fun updateTaskCompletion(taskId: String, isCompleted: Boolean)
+    suspend fun updateTaskCompletion(taskId: String, isCompleted: Boolean): Int
 }

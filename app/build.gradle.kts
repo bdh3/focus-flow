@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.jetbrains.kotlin.android)
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlin.compose)
 }
@@ -13,8 +12,8 @@ android {
         applicationId = "com.focusflow.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 38
-        versionName = "1.6.1"
+        versionCode = 39
+        versionName = "1.7.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -46,20 +45,17 @@ android {
         }
     }
 
+    /*
     applicationVariants.all {
-        val variant = this
-        variant.outputs.all {
+        outputs.all {
             val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
-            val fileName = "FocusFlow_v${variant.versionName}.apk"
-            output.outputFileName = fileName
+            output.outputFileName = "FocusFlow_v${versionName}.apk"
         }
     }
+    */
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
-    }
-    kotlinOptions {
-        jvmTarget = "1.8"
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures {
         compose = true
@@ -69,6 +65,23 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        // AGP 8.x+ APK renaming often needs to use the artifacts API or simple property overrides
+    }
+}
+
+// Correct way to set the base name of the APK in modern AGP + KTS
+base {
+    archivesName.set("FocusFlow_v${android.defaultConfig.versionName}")
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 

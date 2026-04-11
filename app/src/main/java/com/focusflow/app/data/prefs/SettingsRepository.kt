@@ -27,6 +27,8 @@ class SettingsRepository(private val context: Context) {
         val FOCUS_SOUND_ID = stringPreferencesKey("focus_sound_id")
         val REST_SOUND_ID = stringPreferencesKey("rest_sound_id")
         val FINISH_SOUND_ID = stringPreferencesKey("finish_sound_id")
+        val DARK_MODE = intPreferencesKey("dark_mode") // 0: System, 1: Light, 2: Dark
+        val FONT_SIZE_SCALE = floatPreferencesKey("font_size_scale") // 0.85f: Small, 1.0f: Medium, 1.15f: Large
     }
 
     val calendarSyncEnabled: Flow<Boolean> = context.dataStore.data
@@ -92,6 +94,16 @@ class SettingsRepository(private val context: Context) {
     val finishSoundId: Flow<String> = context.dataStore.data
         .map { preferences ->
             preferences[FINISH_SOUND_ID] ?: "gentle"
+        }
+
+    val darkMode: Flow<Int> = context.dataStore.data
+        .map { preferences ->
+            preferences[DARK_MODE] ?: 0
+        }
+
+    val fontSizeScale: Flow<Float> = context.dataStore.data
+        .map { preferences ->
+            preferences[FONT_SIZE_SCALE] ?: 1.0f
         }
 
     suspend fun setCalendarSyncEnabled(enabled: Boolean) {
@@ -169,6 +181,18 @@ class SettingsRepository(private val context: Context) {
     suspend fun setFinishSoundId(id: String) {
         context.dataStore.edit { preferences ->
             preferences[FINISH_SOUND_ID] = id
+        }
+    }
+
+    suspend fun setDarkMode(mode: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[DARK_MODE] = mode
+        }
+    }
+
+    suspend fun setFontSizeScale(scale: Float) {
+        context.dataStore.edit { preferences ->
+            preferences[FONT_SIZE_SCALE] = scale
         }
     }
 

@@ -10,13 +10,13 @@ interface ScheduleDao {
     fun getSchedulesForDay(startOfDay: Long, endOfDay: Long): Flow<List<ScheduleBlock>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertSchedule(schedule: ScheduleBlock)
+    suspend fun insertSchedule(schedule: ScheduleBlock): Long
 
     @Update
-    suspend fun updateSchedule(schedule: ScheduleBlock)
+    suspend fun updateSchedule(schedule: ScheduleBlock): Int
 
     @Delete
-    suspend fun deleteSchedule(schedule: ScheduleBlock)
+    suspend fun deleteSchedule(schedule: ScheduleBlock): Int
 
     @Query("SELECT * FROM schedule_blocks WHERE id = :id")
     suspend fun getScheduleById(id: String): ScheduleBlock?

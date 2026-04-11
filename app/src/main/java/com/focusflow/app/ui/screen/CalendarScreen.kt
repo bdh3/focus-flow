@@ -19,7 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+
 import com.focusflow.app.model.ScheduleBlock
 import com.focusflow.app.ui.viewmodel.SchedulerUiState
 import com.focusflow.app.ui.viewmodel.SchedulerViewModel
@@ -47,6 +47,10 @@ fun CalendarScreen(
     val selectedDate by viewModel.selectedDate.collectAsState()
     var showAddTaskDialog by remember { mutableStateOf(false) }
     var editingSchedule by remember { mutableStateOf<ScheduleBlock?>(null) }
+    
+    // 세션 생성을 위한 빠른 제목 입력 상태
+    var quickTaskTitle by remember { mutableStateOf("") }
+    
     val isMonthlyView = uiState.isCalendarMonthlyView
     val context = LocalContext.current
 
@@ -96,7 +100,7 @@ fun CalendarScreen(
                     }
                     IconButton(onClick = { viewModel.setCalendarMonthlyView(!isMonthlyView) }) {
                         Icon(
-                            imageVector = Icons.Default.DateRange,
+                            imageVector = if (isMonthlyView) Icons.Default.Menu else Icons.Default.DateRange,
                             contentDescription = if (isMonthlyView) "일간 보기" else "월간 보기",
                             tint = if (!isMonthlyView) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                         )
@@ -108,7 +112,7 @@ fun CalendarScreen(
                         }
                         viewModel.selectDate(cal.timeInMillis)
                     }) {
-                        Text("<")
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "이전")
                     }
                     IconButton(onClick = {
                         val cal = Calendar.getInstance().apply {
@@ -117,43 +121,130 @@ fun CalendarScreen(
                         }
                         viewModel.selectDate(cal.timeInMillis)
                     }) {
-                        Text(">")
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "다음")
                     }
                 }
             )
         }
     ) { padding ->
-        Box(modifier = Modifier.padding(padding)) {
-            if (isMonthlyView) {
-                MonthlyCalendarView(
-                    selectedDate = selectedDate,
-                    allSchedules = uiState.allSchedules, // 전체 일정 전달 (요구사항 1번)
-                    onDateSelected = { 
-                        viewModel.selectDate(it)
-                        viewModel.setCalendarMonthlyView(false)
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            // 메인 콘텐츠 영역 (월간/일간 뷰)
+            Box(modifier = Modifier.weight(1f)) {
+                if (isMonthlyView) {
+                    MonthlyCalendarView(
+                        selectedDate = selectedDate,
+                        allSchedules = uiState.allSchedules,
+                        onDateSelected = { 
+                            viewModel.selectDate(it)
+                            viewModel.setCalendarMonthlyView(false)
+                        }
+                    )
+                } else {
+                    DailyTimelineView(
+                        uiState = uiState,
+                        selectedDate = selectedDate,
+                        onLoadSchedule = { schedule ->
+                            editingSchedule = schedule
+                        },
+                        onToggleBlock = { blockTime ->
+                            viewModel.toggleBlock(blockTime)
+                        }
+                    )
+                }
+            }
+
+            // 하단 퀵 세션 바: 동선을 줄이기 위해 텍스트 필드를 바로 노출
+            if (!isMonthlyView && uiState.selectedBlocks.isNotEmpty()) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.fillMaxWidth(),
+                    shadowElevation = 12.dp
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${formatDuration(uiState.selectedBlocks.size * 15)} 선택됨",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            TextButton(
+                                onClick = { 
+                                    viewModel.clearSelectedBlocks()
+                                    quickTaskTitle = ""
+                                },
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.height(24.dp)
+                            ) {
+                                Text("취소", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                        
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = quickTaskTitle,
+                                onValueChange = { quickTaskTitle = it },
+                                placeholder = { Text("예: 업무, 독서, 명상", style = MaterialTheme.typography.bodyMedium) },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                shape = MaterialTheme.shapes.medium,
+                                textStyle = MaterialTheme.typography.bodyMedium,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                    unfocusedBorderColor = Color.Transparent,
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary
+                                )
+                            )
+                            
+                            IconButton(
+                                onClick = { showAddTaskDialog = true },
+                                modifier = Modifier.size(48.dp).background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.medium)
+                            ) {
+                                Icon(Icons.Default.Settings, contentDescription = "상세 설정", tint = MaterialTheme.colorScheme.primary)
+                            }
+
+                            Button(
+                                onClick = {
+                                    val totalMin = uiState.selectedBlocks.size * 15
+                                    val firstBlock = uiState.selectedBlocks.minOrNull() ?: System.currentTimeMillis()
+                                    val calendar = Calendar.getInstance().apply { timeInMillis = firstBlock }
+                                    
+                                    // 설정에 저장된 기본 인터벌과 휴식 시간을 사용
+                                    viewModel.addSchedule(
+                                        taskTitle = quickTaskTitle.ifBlank { "새 작업" },
+                                        durationMinutes = totalMin,
+                                        startTimeHour = calendar.get(Calendar.HOUR_OF_DAY),
+                                        startTimeMinute = calendar.get(Calendar.MINUTE),
+                                        startNewSession = false,
+                                        intervalMinutes = uiState.storedAlarmIntervalMinutes,
+                                        restMinutes = uiState.storedRestMinutes
+                                    )
+                                    viewModel.clearSelectedBlocks()
+                                    quickTaskTitle = ""
+                                },
+                                shape = MaterialTheme.shapes.medium,
+                                modifier = Modifier.height(48.dp),
+                                contentPadding = PaddingValues(horizontal = 20.dp)
+                            ) {
+                                Text("확인", fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
-                )
-            } else {
-                DailyTimelineView(
-                    uiState = uiState,
-                    selectedDate = selectedDate,
-                    onAddSchedule = { _, _, _ ->
-                        showAddTaskDialog = true
-                    },
-                    onLoadSchedule = { schedule ->
-                        editingSchedule = schedule
-                    },
-                    onToggleBlock = { blockTime ->
-                        viewModel.toggleBlock(blockTime)
-                    },
-                    onClearSelection = { viewModel.clearSelectedBlocks() }
-                )
+                }
             }
         }
     }
 
     if (showAddTaskDialog) {
-        var taskTitle by remember { mutableStateOf("") }
+        var taskTitle by remember { mutableStateOf(quickTaskTitle) }
         var isCycleMode by remember { mutableStateOf(false) } // 기본값은 연속 집중
         val totalMin = uiState.selectedBlocks.size * 15
         
@@ -184,16 +275,7 @@ fun CalendarScreen(
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    // 1. 작업명 입력
-                    OutlinedTextField(
-                        value = taskTitle,
-                        onValueChange = { taskTitle = it },
-                        placeholder = { Text("예: 딥러닝 논문 읽기") },
-                        label = { Text("작업 내용") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = MaterialTheme.shapes.medium
-                    )
+                    // 1. 작업명 입력 (기존에는 톱니바퀴 클릭 시에도 입력창이 있었으나, 상단 바와 중복되어 제거)
                     
                     // 2. 모드 선택 (탭 스타일)
                     Column {
@@ -290,7 +372,7 @@ fun CalendarScreen(
                                             localInterval = 25
                                             localRestMinutes = getValidRest(25, 5)
                                         },
-                                        label = { Text("25/5", fontSize = 12.sp) },
+                                        label = { Text("25/5", style = MaterialTheme.typography.labelMedium) },
                                         enabled = totalMin >= 30,
                                         leadingIcon = { Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp)) }
                                     )
@@ -299,7 +381,7 @@ fun CalendarScreen(
                                             localInterval = 50
                                             localRestMinutes = getValidRest(50, 10)
                                         },
-                                        label = { Text("50/10", fontSize = 12.sp) },
+                                        label = { Text("50/10", style = MaterialTheme.typography.labelMedium) },
                                         enabled = totalMin >= 60,
                                         leadingIcon = { Icon(imageVector = Icons.Default.Star, contentDescription = null, modifier = Modifier.size(16.dp)) }
                                     )
@@ -396,10 +478,9 @@ fun CalendarScreen(
                             durationMinutes = duration,
                             startTimeHour = calendar.get(Calendar.HOUR_OF_DAY),
                             startTimeMinute = calendar.get(Calendar.MINUTE),
-                            startNewSession = true,
+                            startNewSession = false,
                             intervalMinutes = localInterval,
-                            restMinutes = if (isCycleMode) localRestMinutes else 0,
-                            onComplete = { onNavigateToTimer() }
+                            restMinutes = if (isCycleMode) localRestMinutes else 0
                         )
                         viewModel.clearSelectedBlocks()
                         showAddTaskDialog = false
@@ -422,19 +503,26 @@ fun CalendarScreen(
     if (editingSchedule != null) {
         var taskTitle by remember(editingSchedule) { mutableStateOf(editingSchedule?.taskTitle ?: "") }
         var durationMinutes by remember(editingSchedule) { mutableIntStateOf(editingSchedule?.durationMinutes ?: 60) }
-        
+        val interval = editingSchedule?.intervalMinutes ?: 15
+        val rest = editingSchedule?.restMinutes ?: 0
+        val isCycle = rest > 0
+
         AlertDialog(
             onDismissRequest = { editingSchedule = null },
             title = { Text("세션 관리") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    // 1. 작업명 수정
                     OutlinedTextField(
                         value = taskTitle,
                         onValueChange = { taskTitle = it },
                         label = { Text("작업명") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.medium
                     )
                     
+                    // 2. 시간 수정
                     Column {
                         val currentStart = editingSchedule?.startTimeMillis ?: 0L
                         val nextSchedule = uiState.dailySchedules
@@ -447,10 +535,9 @@ fun CalendarScreen(
                             480 // 최대 8시간 (480분)
                         }
                         
-                        // Limit to 480 or max possible
                         val sliderMax = (maxDurationPossible / 15 * 15).coerceAtMost(480).toFloat().coerceAtLeast(15f)
                         
-                        Text("작업 시간: ${formatDuration(durationMinutes)}", style = MaterialTheme.typography.bodyMedium)
+                        Text("작업 시간: ${formatDuration(durationMinutes)}", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                         Slider(
                             value = durationMinutes.toFloat(),
                             onValueChange = { 
@@ -468,6 +555,49 @@ fun CalendarScreen(
                             )
                         }
                     }
+
+                    // 3. 몰입 방식 정보 (읽기 전용)
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = if (isCycle) "🔄 사이클 모드 (${interval}분 집중 / ${rest}분 휴식)" 
+                                       else "⚡ 연속 집중 모드 (${interval}분 알람)",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            
+                            Spacer(Modifier.height(8.dp))
+                            
+                            // 미니 미리보기
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(12.dp)
+                                    .clip(MaterialTheme.shapes.extraSmall)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                if (rest <= 0) {
+                                    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary))
+                                } else {
+                                    var current = 0
+                                    while (current < durationMinutes) {
+                                        val fWidth = Math.min(interval, durationMinutes - current).toFloat() / durationMinutes
+                                        if (fWidth > 0) Box(Modifier.weight(fWidth).fillMaxHeight().background(MaterialTheme.colorScheme.primary))
+                                        current += interval
+                                        if (current < durationMinutes) {
+                                            val rWidth = Math.min(rest, durationMinutes - current).toFloat() / durationMinutes
+                                            if (rWidth > 0) Box(Modifier.weight(rWidth).fillMaxHeight().background(MaterialTheme.colorScheme.tertiary))
+                                            current += rest
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -475,14 +605,19 @@ fun CalendarScreen(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // 1열: 우측 끝에 수정, 수행
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         OutlinedButton(onClick = {
-                            editingSchedule?.let { viewModel.updateSchedule(it, taskTitle, durationMinutes) }
+                            editingSchedule?.let { 
+                                viewModel.updateSchedule(
+                                    it, 
+                                    taskTitle, 
+                                    durationMinutes
+                                ) 
+                            }
                             editingSchedule = null
                         }) {
                             Text("수정")
@@ -536,14 +671,30 @@ fun MonthlyCalendarView(
     val daysInMonth = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
     val firstDayOfWeek = calendar.apply { set(Calendar.DAY_OF_MONTH, 1) }.get(Calendar.DAY_OF_WEEK) - 1
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-            listOf("일", "월", "화", "수", "목", "금", "토").forEach { day ->
-                Text(day, style = MaterialTheme.typography.labelMedium, color = if (day == "일") Color.Red else if (day == "토") Color.Blue else Color.Unspecified)
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+            shape = MaterialTheme.shapes.medium,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceAround
+            ) {
+                listOf("일", "월", "화", "수", "목", "금", "토").forEachIndexed { index, day ->
+                    Text(
+                        text = day,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = when (index) {
+                            0 -> Color.Red.copy(alpha = 0.7f)
+                            6 -> Color.Blue.copy(alpha = 0.7f)
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
             }
         }
-        
-        Spacer(modifier = Modifier.height(16.dp))
         
         var currentDay = 1
         for (i in 0..5) {
@@ -560,29 +711,54 @@ fun MonthlyCalendarView(
                         }.timeInMillis
                         
                         val isSelected = isSameDay(dayDate, selectedDate)
-                        val taskCount = allSchedules.count { isSameDay(it.startTimeMillis, dayDate) } // 태스크 수 계산 (요구사항 1번)
+                        val taskCount = allSchedules.count { isSameDay(it.startTimeMillis, dayDate) }
                         
-                        Column(
+                        Box(
                             modifier = Modifier
                                 .size(45.dp)
                                 .clip(MaterialTheme.shapes.small)
                                 .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                                 .clickable { onDateSelected(dayDate) },
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = currentDay.toString(),
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                            )
-                            if (taskCount > 0) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
                                 Text(
-                                    text = taskCount.toString(),
-                                    fontSize = 9.sp,
-                                    color = Color(0xFF2E7D32), // 녹색 표시 (요구사항 1번)
-                                    fontWeight = FontWeight.Bold
+                                    text = currentDay.toString(),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
                                 )
+                                if (taskCount > 0) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(4.dp)
+                                            .clip(androidx.compose.foundation.shape.CircleShape)
+                                            .background(MaterialTheme.colorScheme.primary)
+                                    )
+                                }
+                            }
+                            
+                            if (taskCount > 0) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    shape = androidx.compose.foundation.shape.CircleShape,
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(2.dp)
+                                        .size(14.dp)
+                                ) {
+                                    Text(
+                                        text = taskCount.toString(),
+                                        fontSize = MaterialTheme.typography.labelSmall.fontSize * 0.7f,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.wrapContentSize(Alignment.Center)
+                                    )
+                                }
                             }
                         }
                         currentDay++
@@ -598,10 +774,8 @@ fun MonthlyCalendarView(
 fun DailyTimelineView(
     uiState: SchedulerUiState,
     selectedDate: Long,
-    onAddSchedule: (Int, Int, Int) -> Unit,
     onLoadSchedule: (ScheduleBlock) -> Unit,
-    onToggleBlock: (Long) -> Unit,
-    onClearSelection: () -> Unit
+    onToggleBlock: (Long) -> Unit
 ) {
     val listState = rememberLazyListState()
     
@@ -613,41 +787,36 @@ fun DailyTimelineView(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    // 블록 선택 시 하단이 가려지지 않도록 22시 이후 선택 시 자동 스크롤
+    LaunchedEffect(uiState.selectedBlocks.size) {
         if (uiState.selectedBlocks.isNotEmpty()) {
-            Surface(
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("${formatDuration(uiState.selectedBlocks.size * 15)} 선택됨", style = MaterialTheme.typography.titleSmall)
-                    Row {
-                        TextButton(onClick = onClearSelection) { Text("취소") }
-                        Button(onClick = { onAddSchedule(0, 0, 0) }) { Text("세션 생성") }
-                    }
-                }
+            val lastSelectedBlock = uiState.selectedBlocks.maxOrNull() ?: 0L
+            val cal = Calendar.getInstance().apply { timeInMillis = lastSelectedBlock }
+            if (cal.get(Calendar.HOUR_OF_DAY) >= 22) {
+                listState.animateScrollToItem(23)
             }
         }
-        
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(24) { hour ->
-                HourRow(
-                    hour = hour,
-                    selectedDate = selectedDate,
-                    uiState = uiState,
-                    onToggleBlock = onToggleBlock,
-                    onLoadSchedule = onLoadSchedule
-                )
-            }
+    }
+
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            top = 16.dp,
+            start = 16.dp,
+            end = 16.dp,
+            bottom = 16.dp // 이제 Column 레이아웃이 영역을 확보해주므로 기본 패딩만 사용
+        ),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(24) { hour ->
+            HourRow(
+                hour = hour,
+                selectedDate = selectedDate,
+                uiState = uiState,
+                onToggleBlock = onToggleBlock,
+                onLoadSchedule = onLoadSchedule
+            )
         }
     }
 }
@@ -668,7 +837,7 @@ fun HourRow(
             text = String.format(Locale.getDefault(), "%02d:00", hour),
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.width(45.dp),
-            color = Color.Gray
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         
         Row(
@@ -702,7 +871,7 @@ fun HourRow(
                                 schedule != null -> if (schedule.isCompleted) MaterialTheme.colorScheme.surfaceVariant 
                                                    else MaterialTheme.colorScheme.secondaryContainer
                                 isSelected -> MaterialTheme.colorScheme.primary
-                                else -> Color.LightGray.copy(alpha = 0.2f)
+                                else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                             }
                         )
                         .clickable { 
@@ -712,7 +881,7 @@ fun HourRow(
                     contentAlignment = Alignment.Center
                 ) {
                     if (schedule != null && isSameTime(blockStartTime, schedule.startTimeMillis)) {
-                        Text(schedule.taskTitle, fontSize = 10.sp, maxLines = 1, textAlign = TextAlign.Center)
+                        Text(schedule.taskTitle, style = MaterialTheme.typography.labelSmall, maxLines = 1, textAlign = TextAlign.Center)
                     } else if (isSelected) {
                         Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(14.dp), tint = Color.White)
                     }

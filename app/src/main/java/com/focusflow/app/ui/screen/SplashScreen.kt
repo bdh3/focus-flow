@@ -18,7 +18,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+
 import com.focusflow.app.BuildConfig
 import kotlinx.coroutines.delay
 
@@ -64,9 +64,10 @@ fun SplashScreen(onTimeout: () -> Unit) {
             Spacer(modifier = Modifier.height(24.dp))
             Text(
                 text = "Focus Flow",
-                fontSize = 40.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
+                style = MaterialTheme.typography.displayLarge.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
             )
         }
         Box(
@@ -78,8 +79,9 @@ fun SplashScreen(onTimeout: () -> Unit) {
         ) {
             Text(
                 text = "Version ${BuildConfig.VERSION_NAME}",
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                style = MaterialTheme.typography.labelMedium.copy(
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
             )
         }
     }

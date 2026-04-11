@@ -17,7 +17,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+
 import com.focusflow.app.model.BlockType
 import com.focusflow.app.model.Task
 import com.focusflow.app.model.TimeBlock

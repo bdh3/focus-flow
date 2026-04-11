@@ -21,7 +21,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+
 import com.focusflow.app.BuildConfig
 import com.focusflow.app.ui.viewmodel.SchedulerViewModel
 import com.focusflow.app.util.VibrationPattern
@@ -38,8 +38,8 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
             viewModel.stopSoundPreview()
         }
     }
-    var alarmInterval by remember { mutableIntStateOf(uiState.alarmIntervalMinutes) }
-    var restMinutes by remember { mutableIntStateOf(uiState.restMinutes) }
+    var alarmInterval by remember { mutableIntStateOf(uiState.storedAlarmIntervalMinutes) }
+    var restMinutes by remember { mutableIntStateOf(uiState.storedRestMinutes) }
     var defaultTotalMinutes by remember { mutableIntStateOf(uiState.defaultTotalMinutes) }
     var vibrationEnabled by remember { mutableStateOf(uiState.vibrationEnabled) }
     var soundEnabled by remember { mutableStateOf(uiState.soundEnabled) }
@@ -49,14 +49,23 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
     var focusSoundId by remember { mutableStateOf(uiState.focusSoundId) }
     var restSoundId by remember { mutableStateOf(uiState.restSoundId) }
     var finishSoundId by remember { mutableStateOf(uiState.finishSoundId) }
+    var darkMode by remember { mutableIntStateOf(uiState.darkMode) }
+    var fontSizeScale by remember { mutableFloatStateOf(uiState.fontSizeScale) }
 
-    LaunchedEffect(uiState.focusVibrationPatternId, uiState.restVibrationPatternId, uiState.finishVibrationPatternId, uiState.focusSoundId, uiState.restSoundId, uiState.finishSoundId) {
+    LaunchedEffect(uiState.storedAlarmIntervalMinutes, uiState.storedRestMinutes, uiState.defaultTotalMinutes, uiState.vibrationEnabled, uiState.soundEnabled, uiState.focusVibrationPatternId, uiState.restVibrationPatternId, uiState.finishVibrationPatternId, uiState.focusSoundId, uiState.restSoundId, uiState.finishSoundId, uiState.darkMode, uiState.fontSizeScale) {
+        alarmInterval = uiState.storedAlarmIntervalMinutes
+        restMinutes = uiState.storedRestMinutes
+        defaultTotalMinutes = uiState.defaultTotalMinutes
+        vibrationEnabled = uiState.vibrationEnabled
+        soundEnabled = uiState.soundEnabled
         focusPatternId = uiState.focusVibrationPatternId
         restPatternId = uiState.restVibrationPatternId
         finishPatternId = uiState.finishVibrationPatternId
         focusSoundId = uiState.focusSoundId
         restSoundId = uiState.restSoundId
         finishSoundId = uiState.finishSoundId
+        darkMode = uiState.darkMode
+        fontSizeScale = uiState.fontSizeScale
     }
 
     val divisorsOf60 = listOf(1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60)
@@ -72,8 +81,8 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
             TopAppBar(
                 title = { Text("설정") },
                 actions = {
-                    val isModified = (uiState.alarmIntervalMinutes != alarmInterval) || 
-                                     (uiState.restMinutes != restMinutes) ||
+                    val isModified = (uiState.storedAlarmIntervalMinutes != alarmInterval) || 
+                                     (uiState.storedRestMinutes != restMinutes) ||
                                      (uiState.defaultTotalMinutes != defaultTotalMinutes) ||
                                      (uiState.vibrationEnabled != vibrationEnabled) ||
                                      (uiState.soundEnabled != soundEnabled) ||
@@ -82,13 +91,16 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
                                      (uiState.finishVibrationPatternId != finishPatternId) ||
                                      (uiState.focusSoundId != focusSoundId) ||
                                      (uiState.restSoundId != restSoundId) ||
-                                     (uiState.finishSoundId != finishSoundId)
+                                     (uiState.finishSoundId != finishSoundId) ||
+                                     (uiState.darkMode != darkMode) ||
+                                     (uiState.fontSizeScale != fontSizeScale)
 
                     val canSave = isModified && !uiState.isTimerActive
 
                     Button(
                         onClick = {
-                            viewModel.saveSettings(alarmInterval, restMinutes, vibrationEnabled, soundEnabled, uiState.calendarSyncEnabled, focusPatternId, restPatternId, finishPatternId, focusSoundId, restSoundId, finishSoundId, defaultTotalMinutes)
+                            viewModel.saveSettings(alarmInterval, restMinutes, vibrationEnabled, soundEnabled, uiState.calendarSyncEnabled, focusPatternId, restPatternId, finishPatternId, focusSoundId, restSoundId, finishSoundId, defaultTotalMinutes, darkMode)
+                            viewModel.setFontSizeScale(fontSizeScale)
                         },
                         modifier = Modifier.padding(end = 8.dp),
                         enabled = canSave
@@ -118,30 +130,27 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "🚀 단일 작업 기본 전략",
+                        text = "🎯 몰입 모드 기본값",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
-                    Text(
-                        text = "계획 없이 바로 타이머를 시작할 때 적용되는 기본값입니다. (개별 작업 생성 시 변경 가능)",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
                     
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     // 2. 모드 선택 (탭 스타일)
                     var isCycleMode by remember { mutableStateOf(restMinutes > 0) }
                     
-                    Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                         Text("집중 방식", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(8.dp))
                         Row(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .height(42.dp)
+                                .width(200.dp)
+                                .height(36.dp)
                                 .clip(MaterialTheme.shapes.medium)
                                 .background(MaterialTheme.colorScheme.surfaceVariant)
                                 .padding(2.dp)
@@ -160,8 +169,8 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    "연속 집중", 
-                                    style = MaterialTheme.typography.labelLarge,
+                                    "연속", 
+                                    style = MaterialTheme.typography.labelMedium,
                                     color = if (!isCycleMode) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -181,15 +190,15 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    "인터벌 사이클", 
-                                    style = MaterialTheme.typography.labelLarge,
+                                    "사이클", 
+                                    style = MaterialTheme.typography.labelMedium,
                                     color = if (isCycleMode) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     // 3. 상세 설정 영역
                     Surface(
@@ -233,7 +242,7 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
                                             alarmInterval = 25
                                             restMinutes = 5
                                         },
-                                        label = { Text("25/5", fontSize = 12.sp) },
+                                        label = { Text("25/5", style = MaterialTheme.typography.labelMedium) },
                                         leadingIcon = { Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp)) }
                                     )
                                     AssistChip(
@@ -241,7 +250,7 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
                                             alarmInterval = 50
                                             restMinutes = 10
                                         },
-                                        label = { Text("50/10", fontSize = 12.sp) },
+                                        label = { Text("50/10", style = MaterialTheme.typography.labelMedium) },
                                         leadingIcon = { Icon(imageVector = Icons.Default.Star, contentDescription = null, modifier = Modifier.size(16.dp)) }
                                     )
                                 }
@@ -292,8 +301,8 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
 
                             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
 
-                            // 독립 작업 총 시간 설정 추가
-                            Text("총 세션 시간 (독립 작업 시작 시)", style = MaterialTheme.typography.labelMedium)
+                            // 바로 몰입 총 시간 설정 추가
+                            Text("총 세션 시간 (바로 몰입 시작 시)", style = MaterialTheme.typography.labelMedium)
                             Spacer(Modifier.height(8.dp))
                             
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -428,6 +437,92 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
 
             Text("시스템 설정", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "다크 모드",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                
+                Row(
+                    modifier = Modifier
+                        .width(200.dp)
+                        .clip(MaterialTheme.shapes.medium)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(2.dp)
+                ) {
+                    listOf("시스템", "라이트", "다크").forEachIndexed { index, label ->
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(32.dp)
+                                .clip(MaterialTheme.shapes.medium)
+                                .background(if (darkMode == index) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                .clickable { 
+                                    darkMode = index
+                                    viewModel.saveSettings(alarmInterval, restMinutes, vibrationEnabled, soundEnabled, uiState.calendarSyncEnabled, focusPatternId, restPatternId, finishPatternId, focusSoundId, restSoundId, finishSoundId, defaultTotalMinutes, index)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (darkMode == index) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "글자 크기",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                
+                Row(
+                    modifier = Modifier
+                        .width(200.dp)
+                        .clip(MaterialTheme.shapes.medium)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(2.dp)
+                ) {
+                    val scales = listOf(0.85f, 1.0f, 1.25f)
+                    val labels = listOf("작게", "중간", "크게")
+                    scales.forEachIndexed { index, scale ->
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(32.dp)
+                                .clip(MaterialTheme.shapes.medium)
+                                .background(if (fontSizeScale == scale) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                .clickable { 
+                                    fontSizeScale = scale
+                                    viewModel.setFontSizeScale(scale)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                labels[index],
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (fontSizeScale == scale) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
             val isIgnoringBattery = viewModel.isIgnoringBatteryOptimizations()
             
             ListItem(
