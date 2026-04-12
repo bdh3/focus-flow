@@ -51,10 +51,10 @@ class TimerService : Service() {
         val soundEnabled: Boolean,
         val focusVibrationPatternId: String = "focus_default",
         val restVibrationPatternId: String = "rest_default",
-        val finishVibrationPatternId: String = "double",
-        val focusSoundId: String = "default",
-        val restSoundId: String = "default",
-        val finishSoundId: String = "default"
+        val finishVibrationPatternId: String = "finish_triple",
+        val focusSoundId: String = "focus_default",
+        val restSoundId: String = "rest_default",
+        val finishSoundId: String = "finish_triple"
     )
 
     // Configuration
@@ -66,10 +66,10 @@ class TimerService : Service() {
     private var soundEnabled = true
     private var focusVibrationPatternId = "focus_default"
     private var restVibrationPatternId = "rest_default"
-    private var finishVibrationPatternId = "double"
-    private var focusSoundId = "default"
-    private var restSoundId = "default"
-    private var finishSoundId = "default"
+    private var finishVibrationPatternId = "finish_triple"
+    private var focusSoundId = "focus_default"
+    private var restSoundId = "rest_default"
+    private var finishSoundId = "finish_triple"
     private var onTransition: (String, Int, Boolean, BlockType) -> Unit = { _, _, _, _ -> }
     private var onFinished: () -> Unit = {}
 
@@ -103,6 +103,13 @@ class TimerService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.getBooleanExtra("stop_alarm", false) == true) {
+            NotificationHelper(this).stopSound()
+        }
+        return super.onStartCommand(intent, flags, startId)
+    }
 
     private fun createSilentForegroundNotification(): Notification {
         return NotificationCompat.Builder(this, NotificationHelper.SILENT_SERVICE_CHANNEL_ID)
