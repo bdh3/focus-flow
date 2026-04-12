@@ -1,12 +1,15 @@
 package com.focusflow.app.ui
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -29,6 +32,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.focusflow.app.FocusFlowApplication
+import com.focusflow.app.service.TimerService
 import com.focusflow.app.ui.screen.MainScreen
 import com.focusflow.app.ui.screen.Screen
 import com.focusflow.app.ui.screen.SplashScreen
@@ -53,10 +57,34 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private val connection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            val binder = service as TimerService.TimerBinder
+            viewModel.setTimerService(binder.getService())
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            viewModel.setTimerService(null)
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+    }
+
+    override fun onStop() {
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen() // 시스템 스플래시 활성화
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // [v1.7.3] 서비스 바인딩을 onCreate로 이동하여 백그라운드/알람 상태에서도 연결 유지
+        Intent(this, TimerService::class.java).also { intent ->
+            bindService(intent, connection, Context.BIND_AUTO_CREATE)
+        }
 
         handleIntent(intent)
 
@@ -151,6 +179,21 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // [정책 5] 앱으로 진입하면 현재 울리는 벨소리/알람을 즉시 중단
+        val helper = com.focusflow.app.util.NotificationHelper.getInstance(this)
+        helper.stopAllAlerts()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // [v1.7.3] 앱 종료 시 바인딩 해제
+        try {
+            unbindService(connection)
+        } catch (e: Exception) {}
     }
 
     private fun handleIntent(intent: Intent) {

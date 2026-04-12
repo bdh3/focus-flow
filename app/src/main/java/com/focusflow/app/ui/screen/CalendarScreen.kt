@@ -2,6 +2,7 @@ package com.focusflow.app.ui.screen
 
 import android.app.DatePickerDialog
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,7 +19,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 import com.focusflow.app.model.ScheduleBlock
 import com.focusflow.app.ui.viewmodel.SchedulerUiState
@@ -345,7 +348,7 @@ fun CalendarScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    listOf(5, 10, 15, 30).forEach { interval ->
+                                    listOf(5, 10, 15, 30, 60).forEach { interval ->
                                         Box(
                                             modifier = Modifier
                                                 .weight(1f)
@@ -356,7 +359,7 @@ fun CalendarScreen(
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(
-                                                "${interval}분",
+                                                if (interval >= 60) "${interval / 60}시간" else "${interval}분",
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 color = if (localInterval == interval) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
                                             )
@@ -717,31 +720,18 @@ fun MonthlyCalendarView(
                         
                         Box(
                             modifier = Modifier
-                                .size(45.dp)
-                                .clip(MaterialTheme.shapes.small)
+                                .size(48.dp)
+                                .clip(MaterialTheme.shapes.medium)
                                 .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
                                 .clickable { onDateSelected(dayDate) },
                             contentAlignment = Alignment.Center
                         ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text(
-                                    text = currentDay.toString(),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                )
-                                if (taskCount > 0) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(4.dp)
-                                            .clip(androidx.compose.foundation.shape.CircleShape)
-                                            .background(MaterialTheme.colorScheme.primary)
-                                    )
-                                }
-                            }
+                            Text(
+                                text = currentDay.toString(),
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                            )
                             
                             if (taskCount > 0) {
                                 Surface(
@@ -750,16 +740,24 @@ fun MonthlyCalendarView(
                                     modifier = Modifier
                                         .align(Alignment.TopEnd)
                                         .padding(2.dp)
-                                        .size(14.dp)
+                                        .size(16.dp),
+                                    shadowElevation = 2.dp
                                 ) {
-                                    Text(
-                                        text = taskCount.toString(),
-                                        fontSize = MaterialTheme.typography.labelSmall.fontSize * 0.7f,
-                                        color = MaterialTheme.colorScheme.onPrimary,
-                                        fontWeight = FontWeight.Bold,
-                                        textAlign = TextAlign.Center,
-                                        modifier = Modifier.wrapContentSize(Alignment.Center)
-                                    )
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        Text(
+                                            text = taskCount.toString(),
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Black,
+                                                lineHeight = 9.sp
+                                            ),
+                                            color = MaterialTheme.colorScheme.onPrimary,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -870,11 +868,21 @@ fun HourRow(
                         .clip(MaterialTheme.shapes.extraSmall)
                         .background(
                             when {
-                                schedule != null -> if (schedule.isCompleted) MaterialTheme.colorScheme.surfaceVariant 
+                                schedule != null -> if (schedule.isCompleted) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
                                                    else MaterialTheme.colorScheme.secondaryContainer
                                 isSelected -> MaterialTheme.colorScheme.primary
-                                else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
                             }
+                        )
+                        .border(
+                            width = 1.dp,
+                            color = when {
+                                schedule != null -> if (schedule.isCompleted) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f) 
+                                                   else MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f)
+                                isSelected -> MaterialTheme.colorScheme.primaryContainer
+                                else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.1f)
+                            },
+                            shape = MaterialTheme.shapes.extraSmall
                         )
                         .clickable { 
                             if (schedule != null) onLoadSchedule(schedule)
@@ -883,7 +891,18 @@ fun HourRow(
                     contentAlignment = Alignment.Center
                 ) {
                     if (schedule != null && isSameTime(blockStartTime, schedule.startTimeMillis)) {
-                        Text(schedule.taskTitle, style = MaterialTheme.typography.labelSmall, maxLines = 1, textAlign = TextAlign.Center)
+                        Text(
+                            text = schedule.taskTitle, 
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = if (schedule.isCompleted) FontWeight.Normal else FontWeight.Bold,
+                                color = if (schedule.isCompleted) MaterialTheme.colorScheme.outline 
+                                        else MaterialTheme.colorScheme.onSecondaryContainer,
+                                textDecoration = if (schedule.isCompleted) TextDecoration.LineThrough else null
+                            ), 
+                            maxLines = 1, 
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 2.dp)
+                        )
                     } else if (isSelected) {
                         Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(14.dp), tint = Color.White)
                     }

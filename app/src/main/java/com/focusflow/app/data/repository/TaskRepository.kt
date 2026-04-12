@@ -11,6 +11,10 @@ class TaskRepository(private val taskDao: TaskDao) {
         return taskDao.getTasksForDate(dateMillis)
     }
 
+    fun getTasksForRange(start: Long, end: Long): Flow<List<Task>> {
+        return taskDao.getTasksForRange(start, end)
+    }
+
     suspend fun insertTask(task: Task) {
         taskDao.insertTask(task)
     }

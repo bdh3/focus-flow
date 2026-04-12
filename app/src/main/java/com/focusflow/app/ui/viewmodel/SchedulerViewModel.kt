@@ -1,71 +1,67 @@
 package com.focusflow.app.ui.viewmodel
 
 import android.app.Application
-import android.content.ComponentName
-import android.content.Context
 import android.content.Intent
-import android.content.ServiceConnection
 import android.net.Uri
-import android.os.IBinder
 import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.focusflow.app.model.BlockType
+import com.focusflow.app.data.prefs.SettingsRepository
+import com.focusflow.app.data.repository.ScheduleRepository
+import com.focusflow.app.data.repository.StatsRepository
+import com.focusflow.app.data.repository.TaskRepository
 import com.focusflow.app.model.DailyStats
 import com.focusflow.app.model.ScheduleBlock
 import com.focusflow.app.model.Task
 import com.focusflow.app.model.TimeBlock
-import com.focusflow.app.data.repository.ScheduleRepository
-import com.focusflow.app.data.prefs.SettingsRepository
-import com.focusflow.app.data.repository.StatsRepository
-import com.focusflow.app.data.repository.TaskRepository
 import com.focusflow.app.service.TimerService
+import com.focusflow.app.util.BlockType
 import com.focusflow.app.util.NotificationHelper
 import com.focusflow.app.util.VibrationPattern
-import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
-import java.util.*
+import java.util.Calendar
+import java.util.UUID
 
 data class SchedulerUiState(
     val tasks: List<Task> = emptyList(),
+    val allSchedules: List<ScheduleBlock> = emptyList(),
+    val dailySchedules: List<ScheduleBlock> = emptyList(),
+    val selectedBlocks: Set<Long> = emptySet(),
+    val selectionAnchor: Long? = null,
+    val isTimerActive: Boolean = false,
+    val isRunning: Boolean = false,
+    val remainingSeconds: Int = 0,
+    val totalRemainingSeconds: Int = 0,
+    val currentBlockIndex: Int = 0,
+    val timeBlocks: List<TimeBlock> = emptyList(),
     val selectedTaskId: String? = null,
     val selectedTaskTitle: String? = null,
-    val timeBlocks: List<TimeBlock> = emptyList(),
-    val currentBlockIndex: Int = 0,
-    val remainingSeconds: Int = 0,
-    val isRunning: Boolean = false,
-    val isTimerActive: Boolean = false,
-    val sessionTotalMinutes: Int = 60,
-    val totalRemainingSeconds: Int = 0,
-    val vibrationEnabled: Boolean = true,
-    val alarmIntervalMinutes: Int = 15,
-    val calendarSyncEnabled: Boolean = false,
-    val selectedBlocks: Set<Long> = emptySet(),
-    val dailySchedules: List<ScheduleBlock> = emptyList(),
-    val allSchedules: List<ScheduleBlock> = emptyList(),
     val currentScheduleId: String? = null,
-    val selectionAnchor: Long? = null,
-    val activeSessionInterval: Int = 15,
+    val recentStats: List<DailyStats> = emptyList(),
+    val sessionTotalMinutes: Int = 60,
+    val alarmIntervalMinutes: Int = 15,
     val restMinutes: Int = 0,
+    val vibrationEnabled: Boolean = true,
+    val soundEnabled: Boolean = true,
+    val calendarSyncEnabled: Boolean = false,
     val focusVibrationPatternId: String = "focus_default",
     val restVibrationPatternId: String = "rest_default",
-    val finishVibrationPatternId: String = "double",
-    val focusSoundId: String = "default",
-    val restSoundId: String = "default",
-    val finishSoundId: String = "default",
+    val finishVibrationPatternId: String = "finish_triple",
+    val focusSoundId: String = "focus_default",
+    val restSoundId: String = "rest_default",
+    val finishSoundId: String = "finish_triple",
     val defaultTotalMinutes: Int = 60,
-    val soundEnabled: Boolean = true,
-    val recentStats: List<DailyStats> = emptyList(),
-    val isCalendarMonthlyView: Boolean = false,
     val darkMode: Int = 0,
     val fontSizeScale: Float = 1.0f,
+    val useFullScreenAlarm: Boolean = true,
     val focusRingtoneUri: String? = null,
     val restRingtoneUri: String? = null,
     val finishRingtoneUri: String? = null,
     val storedAlarmIntervalMinutes: Int = 15,
-    val storedRestMinutes: Int = 0
+    val storedRestMinutes: Int = 0,
+    val isCalendarMonthlyView: Boolean = false
 )
 
 class SchedulerViewModel(
@@ -77,584 +73,514 @@ class SchedulerViewModel(
 ) : AndroidViewModel(app) {
 
     private val _uiState = MutableStateFlow(SchedulerUiState())
+    val uiState: StateFlow<SchedulerUiState> = _uiState.asStateFlow()
+
     private val _selectedDate = MutableStateFlow(System.currentTimeMillis())
     val selectedDate: StateFlow<Long> = _selectedDate.asStateFlow()
 
-    private val notificationHelper = NotificationHelper.getInstance(app)
-    
     private var timerService: TimerService? = null
-    private var isBound = false
-
-    private val connection = object : ServiceConnection {
-        override fun onServiceConnected(className: ComponentName?, service: IBinder?) {
-            val binder = service as TimerService.TimerBinder
-            timerService = binder.getService()
-            isBound = true
-
-            viewModelScope.launch {
-                timerService?.totalRemainingSeconds?.collect { seconds ->
-                    _uiState.update { it.copy(totalRemainingSeconds = seconds) }
-                }
-            }
-
-            viewModelScope.launch {
-                timerService?.remainingSeconds?.collect { seconds ->
-                    _uiState.update { it.copy(remainingSeconds = seconds) }
-                }
-            }
-
-            viewModelScope.launch {
-                timerService?.currentBlockIndex?.collect { index ->
-                    _uiState.update { it.copy(currentBlockIndex = index) }
-                }
-            }
-
-            viewModelScope.launch {
-                timerService?.isRunning?.collect { running ->
-                    _uiState.update { it.copy(isRunning = running) }
-                    
-                    val state = _uiState.value
-                    if ((running || state.totalRemainingSeconds > 0) && state.timeBlocks.isEmpty()) {
-                        generateDefaultBlocks(state.activeSessionInterval, state.sessionTotalMinutes)
-                    }
-                }
-            }
-
-            viewModelScope.launch {
-                timerService?.config?.collect { config ->
-                    _uiState.update { it.copy(
-                        isTimerActive = config != null,
-                        sessionTotalMinutes = config?.totalSecondsAtStart?.let { it / 60 } ?: it.sessionTotalMinutes,
-                        activeSessionInterval = config?.intervalMinutes ?: it.activeSessionInterval,
-                        restMinutes = config?.restMinutes ?: it.restMinutes,
-                        vibrationEnabled = config?.vibrationEnabled ?: it.vibrationEnabled,
-                        selectedTaskTitle = config?.taskTitle ?: it.selectedTaskTitle
-                    ) }
-                }
-            }
-        }
-
-        override fun onServiceDisconnected(arg0: ComponentName?) {
-            isBound = false
-            timerService = null
-        }
-    }
+    private val notificationHelper = NotificationHelper.getInstance(app)
 
     init {
-        val intent = Intent(app, TimerService::class.java)
-        app.bindService(intent, connection, Context.BIND_AUTO_CREATE)
-
-        viewModelScope.launch {
-            settingsRepository.alarmIntervalMinutes.collect { interval ->
-                _uiState.update { state ->
-                    val isSessionActive = state.isRunning || state.totalRemainingSeconds > 0
-                    if (!isSessionActive) {
-                        state.copy(
-                            alarmIntervalMinutes = interval,
-                            activeSessionInterval = interval,
-                            storedAlarmIntervalMinutes = interval
-                        )
-                    } else {
-                        state.copy(
-                            alarmIntervalMinutes = interval,
-                            storedAlarmIntervalMinutes = interval
-                        )
-                    }
-                }
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.restMinutes.collect { rest ->
-                _uiState.update { state ->
-                    val isSessionActive = state.isRunning || state.totalRemainingSeconds > 0
-                    if (!isSessionActive) {
-                        state.copy(
-                            restMinutes = rest,
-                            storedRestMinutes = rest
-                        )
-                    } else {
-                        state.copy(storedRestMinutes = rest)
-                    }
-                }
-                if (!_uiState.value.isRunning && _uiState.value.totalRemainingSeconds <= 0) {
-                    generateDefaultBlocks(_uiState.value.alarmIntervalMinutes, _uiState.value.sessionTotalMinutes)
-                }
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.darkMode.collect { mode ->
-                _uiState.update { it.copy(darkMode = mode) }
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.fontSizeScale.collect { scale ->
-                _uiState.update { it.copy(fontSizeScale = scale) }
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.vibrationEnabled.collect { enabled ->
-                _uiState.update { it.copy(vibrationEnabled = enabled) }
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.focusVibrationPatternId.collect { id ->
-                _uiState.update { it.copy(focusVibrationPatternId = id) }
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.restVibrationPatternId.collect { id ->
-                _uiState.update { it.copy(restVibrationPatternId = id) }
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.focusSoundId.collect { id ->
-                _uiState.update { it.copy(focusSoundId = id) }
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.restSoundId.collect { id ->
-                _uiState.update { it.copy(restSoundId = id) }
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.finishSoundId.collect { id ->
-                _uiState.update { it.copy(finishSoundId = id) }
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.focusRingtoneUri.collect { uri ->
-                _uiState.update { it.copy(focusRingtoneUri = uri) }
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.restRingtoneUri.collect { uri ->
-                _uiState.update { it.copy(restRingtoneUri = uri) }
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.finishRingtoneUri.collect { uri ->
-                _uiState.update { it.copy(finishRingtoneUri = uri) }
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.defaultTotalMinutes.collect { mins ->
-                _uiState.update { it.copy(defaultTotalMinutes = mins) }
-            }
-        }
+        loadData()
+        observeDailySchedules()
+        observeStats()
+        observeTodayTasks() // 오늘 작업 구독 추가
     }
 
-    override fun onCleared() {
-        super.onCleared()
-        if (isBound) {
-            app.unbindService(connection)
-            isBound = false
+    private fun observeTodayTasks() {
+        val calendar = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
         }
-    }
-
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val uiState: StateFlow<SchedulerUiState> = combine(
-        _uiState,
-        settingsRepository.vibrationEnabled,
-        settingsRepository.soundEnabled,
-        settingsRepository.alarmIntervalMinutes,
-        settingsRepository.restMinutes,
-        settingsRepository.focusVibrationPatternId,
-        settingsRepository.restVibrationPatternId,
-        settingsRepository.focusSoundId,
-        settingsRepository.restSoundId,
-        settingsRepository.finishSoundId,
-        settingsRepository.focusRingtoneUri,
-        settingsRepository.restRingtoneUri,
-        settingsRepository.finishRingtoneUri,
-        settingsRepository.defaultTotalMinutes,
-        settingsRepository.darkMode,
-        settingsRepository.fontSizeScale,
-        _selectedDate.flatMapLatest { scheduleRepository.getSchedulesForDay(it) },
-        scheduleRepository.getAllSchedules(),
-        statsRepository.recentStats,
-        // 타이머 탭 전용: 무조건 '오늘'의 태스크만 가져옴 (요구사항 6번)
-        repository.getTasksForDate(getTodayStartMillis()).flatMapLatest { todayTasks ->
-            scheduleRepository.getSchedulesForDay(getTodayStartMillis()).map { todaySchedules ->
-                combineTasksAndSchedules(todayTasks, todaySchedules, getTodayStartMillis())
-            }
-        }
-    ) { params ->
-        val state = params[0] as SchedulerUiState
-        val vibration = params[1] as Boolean
-        val sound = params[2] as Boolean
-        val alarmInterval = params[3] as Int
-        val defaultRest = params[4] as Int
-        val focusPatternId = params[5] as String
-        val restPatternId = params[6] as String
-        val focusSndId = params[7] as String
-        val restSndId = params[8] as String
-        val finishSndId = params[9] as String
-        val focusRingUri = params[10] as String?
-        val restRingUri = params[11] as String?
-        val finishRingUri = params[12] as String?
-        val defTotalMins = params[13] as Int
-        val darkMode = params[14] as Int
-        val fontSizeScale = params[15] as Float
-        @Suppress("UNCHECKED_CAST")
-        val dailySchedules = params[16] as List<ScheduleBlock>
-        @Suppress("UNCHECKED_CAST")
-        val allSchedules = params[17] as List<ScheduleBlock>
-        @Suppress("UNCHECKED_CAST")
-        val recentStats = params[18] as List<DailyStats>
-        @Suppress("UNCHECKED_CAST")
-        val todayTasks = params[19] as List<Task>
-
-        val isSessionActive = state.isRunning || (state.totalRemainingSeconds > 0)
-        val isTimerActive = state.isTimerActive
+        val startOfDay = calendar.timeInMillis
         
-        // 타이머 탭에서 세션 활성/일시정지 중이면 진행 중인 작업만 노출 (버그 1 수정)
-        val timerTabTasks = if (isTimerActive && state.selectedTaskId != null) {
-            val activeTask = todayTasks.find { it.id == state.selectedTaskId } ?: 
-                allSchedules.find { "sched_${it.id}" == state.selectedTaskId }?.let { schedule ->
-                    Task(
-                        id = "sched_${schedule.id}",
-                        title = schedule.taskTitle,
-                        scheduledDateMillis = schedule.startTimeMillis,
-                        isCompleted = schedule.isCompleted,
-                        startTimeMillis = schedule.startTimeMillis
-                    )
-                }
-            if (activeTask != null) listOf(activeTask) else emptyList()
-        } else if (state.selectedTaskId != null && todayTasks.none { it.id == state.selectedTaskId }) {
-            val selectedTask = allSchedules.find { "sched_${it.id}" == state.selectedTaskId }?.let { schedule ->
-                Task(
-                    id = "sched_${schedule.id}",
+        calendar.set(Calendar.HOUR_OF_DAY, 23)
+        calendar.set(Calendar.MINUTE, 59)
+        calendar.set(Calendar.SECOND, 59)
+        val endOfDay = calendar.timeInMillis
+
+        // [수정] Task와 ScheduleBlock을 결합하여 UI에 표시 및 정렬
+        combine(
+            repository.getTasksForRange(startOfDay, endOfDay),
+            scheduleRepository.getAllSchedules()
+        ) { tasks, schedules ->
+            val todaySchedules = schedules.filter { 
+                it.startTimeMillis in startOfDay..endOfDay 
+            }
+            
+            val combined = tasks.map { it } + todaySchedules.map { schedule ->
+                com.focusflow.app.model.Task(
+                    id = schedule.id,
                     title = schedule.taskTitle,
-                    scheduledDateMillis = schedule.startTimeMillis,
+                    scheduledDateMillis = startOfDay,
+                    startTimeMillis = schedule.startTimeMillis, // 정렬용 실제 시간
                     isCompleted = schedule.isCompleted,
-                    startTimeMillis = schedule.startTimeMillis
+                    durationMinutes = schedule.durationMinutes
                 )
             }
-            if (selectedTask != null) {
-                (todayTasks + selectedTask).sortedWith(compareBy({ it.startTimeMillis == 0L }, { it.startTimeMillis }, { it.createdAt }))
-            } else {
-                todayTasks
-            }
-        } else {
-            todayTasks
-        }
-
-        val effectiveAlarmInterval = if (isSessionActive) {
-            state.activeSessionInterval
-        } else {
-            alarmInterval
-        }
-
-        val effectiveRest = if (isSessionActive) {
-            state.restMinutes
-        } else {
-            defaultRest
-        }
-
-        state.copy(
-            tasks = timerTabTasks,
-            vibrationEnabled = vibration,
-            soundEnabled = sound,
-            alarmIntervalMinutes = effectiveAlarmInterval,
-            restMinutes = effectiveRest,
-            focusVibrationPatternId = focusPatternId,
-            restVibrationPatternId = restPatternId,
-            focusSoundId = focusSndId,
-            restSoundId = restSndId,
-            finishSoundId = finishSndId,
-            focusRingtoneUri = focusRingUri,
-            restRingtoneUri = restRingUri,
-            finishRingtoneUri = finishRingUri,
-            defaultTotalMinutes = defTotalMins,
-            dailySchedules = dailySchedules,
-            allSchedules = allSchedules,
-            recentStats = recentStats,
-            isCalendarMonthlyView = state.isCalendarMonthlyView,
-            darkMode = darkMode,
-            fontSizeScale = fontSizeScale,
-            storedAlarmIntervalMinutes = alarmInterval,
-            storedRestMinutes = defaultRest
-        )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = SchedulerUiState()
-    )
-
-    private fun getTodayStartMillis(): Long {
-        return Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
-    }
-
-    private fun combineTasksAndSchedules(tasks: List<Task>, schedules: List<ScheduleBlock>, dayStart: Long): List<Task> {
-        val combined = tasks.toMutableList()
-        schedules.forEach { schedule ->
-            val cal = Calendar.getInstance().apply { timeInMillis = schedule.startTimeMillis }
-            val endCal = Calendar.getInstance().apply { 
-                timeInMillis = schedule.startTimeMillis + schedule.durationMinutes * 60 * 1000L 
-            }
-            val timeStr = String.format(Locale.getDefault(), "%02d:%02d ~ %02d:%02d", 
-                cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE),
-                endCal.get(Calendar.HOUR_OF_DAY), endCal.get(Calendar.MINUTE))
             
-            val displayTitle = "${schedule.taskTitle} $timeStr"
-            val scheduleId = "sched_${schedule.id}"
-            
-            val existingIndex = combined.indexOfFirst { it.id == scheduleId }
-            val task = Task(
-                id = scheduleId, 
-                title = displayTitle, 
-                scheduledDateMillis = dayStart,
-                isCompleted = schedule.isCompleted,
-                startTimeMillis = schedule.startTimeMillis
+            // 중복 제거 및 정렬 (startTimeMillis -> scheduledDateMillis -> createdAt 순)
+            combined.distinctBy { it.id }.sortedWith(
+                compareBy<com.focusflow.app.model.Task> { 
+                    if (it.startTimeMillis == 0L) Long.MAX_VALUE else it.startTimeMillis 
+                }.thenBy { 
+                    if (it.scheduledDateMillis == 0L) Long.MAX_VALUE else it.scheduledDateMillis 
+                }
             )
-            
-            if (existingIndex != -1) {
-                combined[existingIndex] = task
-            } else {
-                combined.add(task)
-            }
-        }
-        return combined.sortedWith(compareBy({ it.startTimeMillis == 0L }, { it.startTimeMillis }, { it.createdAt }))
+        }.onEach { combinedTasks ->
+            _uiState.update { it.copy(tasks = combinedTasks) }
+        }.launchIn(viewModelScope)
     }
 
-    private fun generateDefaultBlocks(intervalMinutes: Int, totalMinutes: Int) {
-        val blocks = mutableListOf<TimeBlock>()
-        val restMin = _uiState.value.restMinutes
-        
-        if (restMin <= 0) {
-            val numBlocks = (totalMinutes + intervalMinutes - 1) / intervalMinutes
-            for (i in 0 until numBlocks) {
-                blocks.add(TimeBlock(
-                    startTime = i * intervalMinutes * 60L,
-                    durationMinutes = intervalMinutes,
-                    type = BlockType.FOCUS
-                ))
-            }
-        } else {
-            var currentMinutes = 0
-            while (currentMinutes < totalMinutes) {
-                val focusDuration = if (currentMinutes + intervalMinutes > totalMinutes) {
-                    totalMinutes - currentMinutes
-                } else {
-                    intervalMinutes
-                }
-                blocks.add(TimeBlock(
-                    startTime = currentMinutes * 60L,
-                    durationMinutes = focusDuration,
-                    type = BlockType.FOCUS
-                ))
-                currentMinutes += focusDuration
-                
-                if (currentMinutes < totalMinutes) {
-                    val restDuration = if (currentMinutes + restMin > totalMinutes) {
-                        totalMinutes - currentMinutes
-                    } else {
-                        restMin
-                    }
-                    blocks.add(TimeBlock(
-                        startTime = currentMinutes * 60L,
-                        durationMinutes = restDuration,
-                        type = BlockType.REST
-                    ))
-                    currentMinutes += restDuration
-                }
-            }
-        }
-        _uiState.update { it.copy(timeBlocks = blocks) }
+    private fun observeStats() {
+        statsRepository.recentStats.onEach { stats ->
+            _uiState.update { it.copy(recentStats = stats) }
+        }.launchIn(viewModelScope)
     }
 
-    fun setFontSizeScale(scale: Float) {
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun observeDailySchedules() {
+        selectedDate.flatMapLatest { date ->
+            scheduleRepository.getSchedulesForDay(date)
+        }.onEach { daily ->
+            _uiState.update { it.copy(dailySchedules = daily) }
+        }.launchIn(viewModelScope)
+    }
+
+    private fun loadData() {
         viewModelScope.launch {
-            settingsRepository.setFontSizeScale(scale)
+            combine(
+                // repository.allTasks 대신 개별 구독(observeTodayTasks)으로 관리하므로 여기서는 제외하거나 필요한 설정값만 결합
+                scheduleRepository.getAllSchedules(),
+                settingsRepository.alarmIntervalMinutes,
+                settingsRepository.restMinutes,
+                settingsRepository.vibrationEnabled,
+                settingsRepository.soundEnabled,
+                settingsRepository.calendarSyncEnabled,
+                settingsRepository.focusVibrationPatternId,
+                settingsRepository.restVibrationPatternId,
+                settingsRepository.finishVibrationPatternId,
+                settingsRepository.focusSoundId,
+                settingsRepository.restSoundId,
+                settingsRepository.finishSoundId,
+                settingsRepository.defaultTotalMinutes,
+                settingsRepository.darkMode,
+                settingsRepository.fontSizeScale,
+                settingsRepository.focusRingtoneUri,
+                settingsRepository.restRingtoneUri,
+                settingsRepository.finishRingtoneUri,
+                settingsRepository.useFullScreenAlarm
+            ) { values ->
+                val allSchedules = values[0] as List<ScheduleBlock>
+                val interval = values[1] as Int
+                val rest = values[2] as Int
+                val vibration = values[3] as Boolean
+                val sound = values[4] as Boolean
+                val calendarSync = values[5] as Boolean
+                val focusVib = values[6] as String
+                val restVib = values[7] as String
+                val finishVib = values[8] as String
+                val focusSnd = values[9] as String
+                val restSnd = values[10] as String
+                val finishSnd = values[11] as String
+                val defTotal = values[12] as Int
+                val dark = values[13] as Int
+                val fontSize = values[14] as Float
+                val focusUri = values[15] as String?
+                val restUri = values[16] as String?
+                val finishUri = values[17] as String?
+                val fullScreen = values[18] as Boolean
+
+                _uiState.update { state ->
+                    val newSessionTotal = if (!state.isTimerActive) defTotal else state.sessionTotalMinutes
+                    val newInterval = if (!state.isTimerActive) interval else state.alarmIntervalMinutes
+                    val newRest = if (!state.isTimerActive) rest else state.restMinutes
+                    
+                    state.copy(
+                        allSchedules = allSchedules,
+                        alarmIntervalMinutes = newInterval,
+                        restMinutes = newRest,
+                        sessionTotalMinutes = newSessionTotal,
+                        vibrationEnabled = vibration,
+                        soundEnabled = sound,
+                        calendarSyncEnabled = calendarSync,
+                        focusVibrationPatternId = focusVib,
+                        restVibrationPatternId = restVib,
+                        finishVibrationPatternId = finishVib,
+                        focusSoundId = focusSnd,
+                        restSoundId = restSnd,
+                        finishSoundId = finishSnd,
+                        defaultTotalMinutes = defTotal,
+                        darkMode = dark,
+                        fontSizeScale = fontSize,
+                        focusRingtoneUri = focusUri,
+                        restRingtoneUri = restUri,
+                        finishRingtoneUri = finishUri,
+                        useFullScreenAlarm = fullScreen,
+                        storedAlarmIntervalMinutes = interval,
+                        storedRestMinutes = rest,
+                        timeBlocks = if (!state.isTimerActive) {
+                            generateBlocks(newInterval, newRest, newSessionTotal * 60)
+                        } else state.timeBlocks
+                    )
+                }
+            }.collect()
         }
+    }
+
+    private fun generateDefaultBlocks(interval: Int, totalMinutes: Int) {
+        // Logic to generate default blocks based on settings
+    }
+
+    private var serviceCollectorJob: Job? = null
+
+    fun setTimerService(service: TimerService?) {
+        this.timerService = service
+        serviceCollectorJob?.cancel()
+        
+        if (service == null) {
+            _uiState.update { it.copy(isRunning = false) }
+            return
+        }
+
+        serviceCollectorJob = viewModelScope.launch {
+            val s = service
+            // [v1.7.3] 서비스가 다시 연결될 때, 만약 UI상으로는 실행 중인데 서비스 설정이 비어있다면 재설정
+            val currentState = _uiState.value
+            if (currentState.isTimerActive && s.config.value == null) {
+                val taskTitleForService = if (!currentState.selectedTaskTitle.isNullOrEmpty()) currentState.selectedTaskTitle else ""
+                s.setTimerConfig(
+                    interval = currentState.alarmIntervalMinutes,
+                    rest = currentState.restMinutes,
+                    totalSec = currentState.sessionTotalMinutes * 60,
+                    title = taskTitleForService,
+                    vibrate = currentState.vibrationEnabled,
+                    sound = currentState.soundEnabled,
+                    useFullScreen = currentState.useFullScreenAlarm,
+                    focusPatternId = currentState.focusVibrationPatternId,
+                    restPatternId = currentState.restVibrationPatternId,
+                    finishPatternId = currentState.finishVibrationPatternId,
+                    focusSound = currentState.focusSoundId,
+                    restSound = currentState.restSoundId,
+                    finishSound = currentState.finishSoundId,
+                    focusRingtoneUri = currentState.focusRingtoneUri,
+                    restRingtoneUri = currentState.restRingtoneUri,
+                    finishRingtoneUri = currentState.finishRingtoneUri,
+                    onTransition = { t, e, f, bt, isSkip -> onBlockTransition(t, e, f, bt, isSkip) },
+                    onFinished = { onSessionFinished() }
+                )
+            }
+
+            combine(s.remainingSeconds, s.totalRemainingSeconds, s.isRunning, s.currentBlockIndex) { rem, total, running, idx ->
+                _uiState.update { state ->
+                    state.copy(
+                        remainingSeconds = if (total > 0 || running) rem else state.remainingSeconds,
+                        totalRemainingSeconds = if (total > 0 || running) total else state.totalRemainingSeconds,
+                        isRunning = running,
+                        currentBlockIndex = idx,
+                        isTimerActive = total > 0 || running || (state.isTimerActive && TimerService.isServiceRunning)
+                    )
+                }
+            }.collect()
+        }
+
+        viewModelScope.launch {
+            service.config.collect { config ->
+                config?.let {
+                    val blocks = generateBlocks(it.intervalMinutes, it.restMinutes, it.totalSecondsAtStart)
+                    _uiState.update { state -> state.copy(timeBlocks = blocks) }
+                }
+            }
+        }
+    }
+
+    private fun generateBlocks(intervalMinutes: Int, restMinutes: Int, totalSeconds: Int): List<TimeBlock> {
+        val blocks = mutableListOf<TimeBlock>()
+        var remaining = totalSeconds
+        val focusSec = intervalMinutes * 60
+        val restSec = restMinutes * 60
+        var currentTime = System.currentTimeMillis()
+
+        while (remaining > 0) {
+            // Focus block
+            val focusDuration = if (remaining < focusSec) remaining else focusSec
+            blocks.add(TimeBlock(startTime = currentTime, durationMinutes = (focusDuration + 59) / 60, type = BlockType.FOCUS))
+            remaining -= focusDuration
+            currentTime += focusDuration * 1000L
+
+            if (remaining <= 0) break
+
+            // Rest block
+            if (restSec > 0) {
+                val restDuration = if (remaining < restSec) remaining else restSec
+                blocks.add(TimeBlock(startTime = currentTime, durationMinutes = (restDuration + 59) / 60, type = BlockType.REST))
+                remaining -= restDuration
+                currentTime += restDuration * 1000L
+            }
+        }
+        return blocks
+    }
+
+    fun startSession(taskId: String?, title: String?, scheduleId: String? = null) {
+        val state = _uiState.value
+        _uiState.update { it.copy(
+            isTimerActive = true,
+            isRunning = true,
+            selectedTaskId = taskId,
+            selectedTaskTitle = title,
+            currentScheduleId = scheduleId,
+            totalRemainingSeconds = state.sessionTotalMinutes * 60
+        ) }
+        
+        viewModelScope.launch {
+            timerService?.setTimerConfig(
+                interval = state.alarmIntervalMinutes,
+                rest = state.restMinutes,
+                totalSec = state.sessionTotalMinutes * 60,
+                title = title ?: "",
+                vibrate = state.vibrationEnabled,
+                sound = state.soundEnabled,
+                useFullScreen = state.useFullScreenAlarm,
+                focusPatternId = state.focusVibrationPatternId,
+                restPatternId = state.restVibrationPatternId,
+                finishPatternId = state.finishVibrationPatternId,
+                focusSound = state.focusSoundId,
+                restSound = state.restSoundId,
+                finishSound = state.finishSoundId,
+                focusRingtoneUri = state.focusRingtoneUri,
+                restRingtoneUri = state.restRingtoneUri,
+                finishRingtoneUri = state.finishRingtoneUri,
+                onTransition = { t, e, f, bt, isSkip -> onBlockTransition(t, e, f, bt, isSkip) },
+                onFinished = { onSessionFinished() }
+            )
+            timerService?.startTimer(state.sessionTotalMinutes * 60)
+        }
+    }
+
+    fun skipBlock() {
+        if (!_uiState.value.isRunning) return
+        // [정책 9] 넘기기 시에는 팝업으로 알림을 주기 위해 플래그 전달
+        timerService?.skipToNext()
+    }
+
+    fun onBlockTransition(
+        taskTitle: String, 
+        elapsedMinutes: Int, 
+        isFinished: Boolean, 
+        blockType: BlockType,
+        isManualSkip: Boolean = false // [정책 9] 파라미터 추가
+    ) {
+        val state = _uiState.value
+        
+        // [v1.7.3] isRunning 조작 제거 (서비스의 상태 Flow를 절대적 진실로 따름)
+        if (isFinished) {
+            _uiState.update { it.copy(isTimerActive = false) }
+        }
+        
+        val focusPattern = VibrationPattern.fromId(state.focusVibrationPatternId).pattern
+        val restPattern = VibrationPattern.fromId(state.restVibrationPatternId).pattern
+        val finishVibPattern = VibrationPattern.fromId(state.finishVibrationPatternId).pattern
+
+        val ringtoneUri = when {
+            isFinished -> state.finishRingtoneUri
+            blockType == BlockType.FOCUS -> state.focusRingtoneUri
+            else -> state.restRingtoneUri
+        }
+        
+        val focusSound = state.focusSoundId
+        val restSound = state.restSoundId
+        val finishSound = state.finishSoundId
+        
+        val currentSoundId = when {
+            isFinished -> finishSound
+            blockType == BlockType.FOCUS -> focusSound
+            else -> restSound
+        }
+
+        // [v1.7.3] 알람 노출 모드 결정 트리 (README_ALARM.md 규칙 1, 2, 3 준수)
+        // 1. 벨소리(ringtone)라면 무조건 전체 화면
+        // 2. 그 외에는 유저의 useFullScreenAlarm 설정을 따름 (종료 알람 포함)
+        val useFullScreen = currentSoundId == "ringtone" || state.useFullScreenAlarm
+
+        notificationHelper.showBlockTransitionNotification(
+            taskTitle = taskTitle, 
+            elapsedMinutes = elapsedMinutes, 
+            isFinished = isFinished,
+            currentBlockType = blockType,
+            focusVibrationPattern = focusPattern,
+            restVibrationPattern = restPattern,
+            finishVibrationPattern = finishVibPattern,
+            focusSoundId = focusSound,
+            restSoundId = restSound,
+            finishSoundId = finishSound,
+            vibrationEnabled = state.vibrationEnabled,
+            soundEnabled = state.soundEnabled,
+            ringtoneUri = ringtoneUri,
+            useFullScreen = useFullScreen,
+            isManualSkip = isManualSkip // 정책 반영
+        )
+    }
+
+    fun onSessionFinished() {
+        val state = _uiState.value
+        val taskId = state.selectedTaskId
+        val scheduleId = state.currentScheduleId
+
+        viewModelScope.launch {
+            // [v1.7.3] 세션 완료 시 해당 작업 자동 완료 처리
+            if (scheduleId != null) {
+                scheduleRepository.getScheduleById(scheduleId)?.let { schedule ->
+                    scheduleRepository.updateSchedule(schedule.copy(isCompleted = true))
+                    // Task 테이블과 동기화된 경우 같이 업데이트
+                    repository.updateTaskCompletion(scheduleId, true)
+                }
+            } else if (taskId != null) {
+                repository.updateTaskCompletion(taskId, true)
+            }
+            
+            // 타이머 중지 및 상태 초기화
+            timerService?.stopTimer()
+            _uiState.update { it.copy(
+                isRunning = false,
+                isTimerActive = false,
+                totalRemainingSeconds = 0,
+                remainingSeconds = 0,
+                selectedTaskId = null,
+                selectedTaskTitle = null,
+                currentScheduleId = null
+            ) }
+        }
+    }
+
+    fun stopSoundPreview() {
+        notificationHelper.stopSound()
+    }
+
+    fun selectDate(date: Long) {
+        _selectedDate.value = date
+    }
+
+    fun setCalendarMonthlyView(isMonthly: Boolean) {
+        _uiState.update { it.copy(isCalendarMonthlyView = isMonthly) }
+    }
+
+    fun clearSelectedBlocks() {
+        _uiState.update { it.copy(selectedBlocks = emptySet(), selectionAnchor = null) }
+    }
+
+    fun toggleBlock(blockTime: Long) {
+        _uiState.update { state ->
+            val anchor = state.selectionAnchor
+            if (anchor == null) {
+                // 첫 선택: 앵커로 설정
+                state.copy(
+                    selectedBlocks = setOf(blockTime),
+                    selectionAnchor = blockTime
+                )
+            } else if (anchor == blockTime) {
+                // 앵커를 다시 누르면 전체 취소
+                state.copy(
+                    selectedBlocks = emptySet(),
+                    selectionAnchor = null
+                )
+            } else {
+                // 범위 선택: 앵커와 현재 터치 지점 사이의 모든 블록 선택
+                val start = minOf(anchor, blockTime)
+                val end = maxOf(anchor, blockTime)
+                val intervalMillis = 15 * 60 * 1000L // 타임라인 블록 기준인 15분 단위
+                
+                val newSelected = mutableSetOf<Long>()
+                var current = start
+                while (current <= end) {
+                    newSelected.add(current)
+                    current += intervalMillis
+                }
+                
+                state.copy(
+                    selectedBlocks = newSelected
+                )
+            }
+        }
+    }
+
+    fun loadScheduledSession(schedule: ScheduleBlock) {
+        _uiState.update { it.copy(
+            selectedTaskId = null,
+            selectedTaskTitle = schedule.taskTitle,
+            currentScheduleId = schedule.id,
+            sessionTotalMinutes = schedule.durationMinutes,
+            alarmIntervalMinutes = schedule.intervalMinutes,
+            restMinutes = schedule.restMinutes,
+            isTimerActive = false
+        ) }
     }
 
     fun addSchedule(
-        taskTitle: String, 
-        startTimeHour: Int, 
-        startTimeMinute: Int, 
-        durationMinutes: Int, 
+        taskTitle: String,
+        durationMinutes: Int,
+        startTimeHour: Int,
+        startTimeMinute: Int,
         startNewSession: Boolean = false,
-        intervalMinutes: Int = _uiState.value.alarmIntervalMinutes,
-        restMinutes: Int = _uiState.value.restMinutes,
-        onComplete: () -> Unit = {}
+        intervalMinutes: Int = 15,
+        restMinutes: Int = 0
     ) {
         viewModelScope.launch {
-            val startTime = Calendar.getInstance().apply {
+            val calendar = Calendar.getInstance().apply {
                 timeInMillis = _selectedDate.value
                 set(Calendar.HOUR_OF_DAY, startTimeHour)
                 set(Calendar.MINUTE, startTimeMinute)
                 set(Calendar.SECOND, 0)
                 set(Calendar.MILLISECOND, 0)
-            }.timeInMillis
-
+            }
+            
             val schedule = ScheduleBlock(
                 taskTitle = taskTitle,
-                startTimeMillis = startTime,
+                startTimeMillis = calendar.timeInMillis,
                 durationMinutes = durationMinutes,
                 intervalMinutes = intervalMinutes,
                 restMinutes = restMinutes
             )
-            val id = scheduleRepository.insertSchedule(schedule)
+            scheduleRepository.insertSchedule(schedule)
             
-            if (startNewSession) {
-                val scheduleWithId = schedule.copy(id = id.toString())
-                loadScheduledSession(scheduleWithId)
-            }
-            onComplete()
-        }
-    }
-
-    fun loadScheduledSession(schedule: ScheduleBlock) {
-        if (_uiState.value.isRunning) return
-        
-        val taskInterval = schedule.intervalMinutes
-        val taskRest = schedule.restMinutes
-        
-        _uiState.update { it.copy(
-            selectedTaskId = "sched_${schedule.id}",
-            selectedTaskTitle = schedule.taskTitle,
-            sessionTotalMinutes = schedule.durationMinutes,
-            currentScheduleId = schedule.id,
-            activeSessionInterval = taskInterval,
-            restMinutes = taskRest,
-            remainingSeconds = taskInterval * 60,
-            totalRemainingSeconds = schedule.durationMinutes * 60,
-            isTimerActive = false
-        ) }
-        
-        generateDefaultBlocks(taskInterval, schedule.durationMinutes)
-    }
-
-    fun startNewSession(taskTitle: String, totalMinutes: Int, hourOfDay: Int? = null) {
-        if (_uiState.value.isRunning) return
-        
-        viewModelScope.launch {
-            val startTime = Calendar.getInstance().apply {
-                timeInMillis = _selectedDate.value
-                if (hourOfDay != null) set(Calendar.HOUR_OF_DAY, hourOfDay)
-                else {
-                    val now = Calendar.getInstance()
-                    set(Calendar.HOUR_OF_DAY, now.get(Calendar.HOUR_OF_DAY))
-                }
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
+            // Task 테이블에도 추가 (오늘 날짜인 경우)
+            val todayStart = Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
             }.timeInMillis
-
-            val newSchedule = ScheduleBlock(
-                taskTitle = taskTitle,
-                startTimeMillis = startTime,
-                durationMinutes = totalMinutes
-            )
-            val id = scheduleRepository.insertSchedule(newSchedule)
-            val scheduleWithId = newSchedule.copy(id = id.toString())
+            val scheduleDate = Calendar.getInstance().apply {
+                timeInMillis = calendar.timeInMillis
+                set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
             
-            val currentInterval = _uiState.value.alarmIntervalMinutes
-            _uiState.update { it.copy(
-                selectedTaskId = "sched_${scheduleWithId.id}",
-                currentScheduleId = scheduleWithId.id,
-                sessionTotalMinutes = totalMinutes,
-                activeSessionInterval = currentInterval,
-                totalRemainingSeconds = totalMinutes * 60
-            ) }
-            
-            generateDefaultBlocks(currentInterval, totalMinutes)
-        }
-    }
+            if (scheduleDate == todayStart) {
+                repository.insertTask(Task(
+                    id = schedule.id,
+                    title = taskTitle,
+                    scheduledDateMillis = scheduleDate,
+                    startTimeMillis = calendar.timeInMillis
+                ))
+            }
 
-    fun selectDate(dateMillis: Long) {
-        _selectedDate.value = dateMillis
-    }
-
-    fun selectTask(taskId: String?) {
-        // 실제 타이머가 작동 중(진행/일시정지)일 때는 선택 변경 불가
-        if (_uiState.value.isTimerActive) return
-
-        if (_uiState.value.selectedTaskId == taskId || taskId == null) {
-            // 이미 선택된 작업을 다시 누르면 선택 취소 (버그 3 수정)
-            _uiState.update { it.copy(
-                selectedTaskId = null,
-                selectedTaskTitle = null,
-                currentScheduleId = null,
-                sessionTotalMinutes = 60,
-                totalRemainingSeconds = 0
-            ) }
-            generateDefaultBlocks(_uiState.value.alarmIntervalMinutes, 60)
-        } else {
-            val scheduleId = if (taskId.startsWith("sched_")) taskId.removePrefix("sched_") else null
-            if (scheduleId != null) {
-                viewModelScope.launch {
-                    scheduleRepository.getScheduleById(scheduleId)?.let { schedule ->
-                        _uiState.update { it.copy(
-                            selectedTaskId = taskId,
-                            selectedTaskTitle = schedule.taskTitle,
-                            currentScheduleId = scheduleId,
-                            sessionTotalMinutes = schedule.durationMinutes,
-                            activeSessionInterval = schedule.intervalMinutes,
-                            restMinutes = schedule.restMinutes,
-                            remainingSeconds = schedule.intervalMinutes * 60,
-                            totalRemainingSeconds = schedule.durationMinutes * 60,
-                            isTimerActive = false
-                        ) }
-                        generateDefaultBlocks(schedule.intervalMinutes, schedule.durationMinutes)
-                    }
-                }
-            } else {
-                // Regular task
-                val taskTitle = _uiState.value.tasks.find { it.id == taskId }?.title
-                _uiState.update { it.copy(
-                    selectedTaskId = taskId,
-                    selectedTaskTitle = taskTitle,
-                    currentScheduleId = null,
-                    sessionTotalMinutes = 60,
-                    totalRemainingSeconds = 60 * 60, // 1 hour default
-                    isTimerActive = false
-                ) }
-                generateDefaultBlocks(_uiState.value.alarmIntervalMinutes, 60)
+            if (startNewSession) {
+                loadScheduledSession(schedule)
             }
         }
     }
 
-    fun addTask(title: String) {
+    fun updateSchedule(schedule: ScheduleBlock, newTitle: String, newDuration: Int) {
         viewModelScope.launch {
-            repository.insertTask(Task(title = title, scheduledDateMillis = _selectedDate.value))
-        }
-    }
-
-    fun deleteTask(task: Task) {
-        viewModelScope.launch {
-            if (task.id.startsWith("sched_")) {
-                val scheduleId = task.id.removePrefix("sched_")
-                scheduleRepository.getScheduleById(scheduleId)?.let {
-                    scheduleRepository.deleteSchedule(it)
-                }
-            } else {
-                repository.deleteTask(task)
-            }
-        }
-    }
-
-    fun toggleTaskCompletion(task: Task) {
-        viewModelScope.launch {
-            if (task.id.startsWith("sched_")) {
-                val scheduleId = task.id.removePrefix("sched_")
-                scheduleRepository.getScheduleById(scheduleId)?.let { current ->
-                    scheduleRepository.updateSchedule(current.copy(isCompleted = !current.isCompleted))
-                }
-            } else {
-                repository.updateTask(task.copy(isCompleted = !task.isCompleted))
-            }
-        }
-    }
-
-    fun toggleTimer() {
-        if (_uiState.value.isRunning) {
-            pauseTimer()
-        } else {
-            startTimer()
+            val updated = schedule.copy(taskTitle = newTitle, durationMinutes = newDuration)
+            scheduleRepository.updateSchedule(updated)
+            // Task 테이블 동기화
+            repository.updateTask(Task(
+                id = updated.id,
+                title = newTitle,
+                scheduledDateMillis = updated.startTimeMillis, // 단순화
+                startTimeMillis = updated.startTimeMillis,
+                durationMinutes = updated.durationMinutes
+            ))
         }
     }
 
@@ -664,202 +590,231 @@ class SchedulerViewModel(
             isRunning = false,
             isTimerActive = false,
             totalRemainingSeconds = 0,
-            currentBlockIndex = 0,
-            remainingSeconds = 0,
-            selectedTaskId = null,
-            selectedTaskTitle = null,
-            currentScheduleId = null,
-            sessionTotalMinutes = 60
+            remainingSeconds = 0
         ) }
-        generateDefaultBlocks(_uiState.value.alarmIntervalMinutes, 60)
     }
 
-    fun startTimer() {
+    fun toggleTimer() {
         val state = _uiState.value
-        
-        // 만약 선택된 태스크가 없고 현재 남은 시간이 0이라면 (완전 신규 바로 몰입)
-        if (state.selectedTaskId == null && state.totalRemainingSeconds <= 0) {
-            // 전역 설정에서 현재 기본 인터벌과 휴식 시간을 가져와서 새로 세팅 (오염 방지)
-            val defaultInterval = state.alarmIntervalMinutes
-            val defaultRest = state.restMinutes
-            val defaultTotalMinutes = state.defaultTotalMinutes
-            val totalSeconds = defaultTotalMinutes * 60
+        if (state.isRunning) {
+            timerService?.pauseTimer()
+        } else {
+            if (timerService == null) return
             
-            _uiState.update { it.copy(
-                sessionTotalMinutes = defaultTotalMinutes,
-                activeSessionInterval = defaultInterval,
-                restMinutes = defaultRest,
-                totalRemainingSeconds = totalSeconds,
-                remainingSeconds = defaultInterval * 60
-            ) }
-            generateDefaultBlocks(defaultInterval, defaultTotalMinutes)
-            
-            timerService?.setTimerConfig(
-                interval = defaultInterval,
-                rest = defaultRest,
-                totalSec = totalSeconds,
-                title = "바로 몰입",
-                vibrate = state.vibrationEnabled,
-                sound = state.soundEnabled,
-                focusPatternId = state.focusVibrationPatternId,
-                restPatternId = state.restVibrationPatternId,
-                finishPatternId = state.finishVibrationPatternId,
-                focusSound = state.focusSoundId,
-                restSound = state.restSoundId,
-                finishSound = state.finishSoundId,
-                focusRingtoneUri = state.focusRingtoneUri,
-                restRingtoneUri = state.restRingtoneUri,
-                finishRingtoneUri = state.finishRingtoneUri,
-                onTransition = { t, e, f, bt -> onBlockTransition(t, e, f, bt) },
-                onFinished = { onSessionFinished() }
-            )
-            timerService?.startTimer(totalSeconds)
+            // 만약 현재 활성화된 세션이 없다면 선택된 제목이나 작업으로 시작
+            if (!state.isTimerActive) {
+                val selectedTask = state.tasks.find { it.id == state.selectedTaskId }
+                // [v1.7.3] 1회성 작업의 기본 명칭은 "독립 세션"
+                val finalTitle = state.selectedTaskTitle ?: selectedTask?.title ?: "독립 세션"
+                startSession(state.selectedTaskId, finalTitle, state.currentScheduleId)
+            } else {
+                timerService?.startTimer(state.totalRemainingSeconds)
+            }
+        }
+    }
+
+    fun selectTask(taskId: String?) {
+        // 이미 선택된 작업을 다시 터치하면 선택 해제 (일반 모드로 복구)
+        if (taskId != null && _uiState.value.selectedTaskId == taskId) {
+            selectTask(null)
             return
         }
 
-        // 기존에 선택된 작업이 있거나 일시정지 중인 세션 재개
-        val currentInterval = state.activeSessionInterval
-        val currentRest = state.restMinutes
-
-        if (state.totalRemainingSeconds <= 0) {
-            // 선택된 태스크가 있는 상태에서 처음 시작
-            val totalSeconds = state.sessionTotalMinutes * 60
-            // 가공된 Task.title 대신 순수 작업명인 selectedTaskTitle을 최우선 사용
-            val title = state.selectedTaskTitle ?: state.tasks.find { it.id == state.selectedTaskId }?.title ?: "작업"
-            
-            _uiState.update { it.copy(
-                totalRemainingSeconds = totalSeconds,
-                remainingSeconds = currentInterval * 60,
-                isTimerActive = true
-            ) }
-            generateDefaultBlocks(currentInterval, state.sessionTotalMinutes)
-            
-            timerService?.setTimerConfig(
-                interval = currentInterval,
-                rest = currentRest,
-                totalSec = totalSeconds,
-                title = title,
-                vibrate = state.vibrationEnabled,
-                sound = state.soundEnabled,
-                focusPatternId = state.focusVibrationPatternId,
-                restPatternId = state.restVibrationPatternId,
-                finishPatternId = state.finishVibrationPatternId,
-                focusSound = state.focusSoundId,
-                restSound = state.restSoundId,
-                finishSound = state.finishSoundId,
-                focusRingtoneUri = state.focusRingtoneUri,
-                restRingtoneUri = state.restRingtoneUri,
-                finishRingtoneUri = state.finishRingtoneUri,
-                onTransition = { t, e, f, bt -> onBlockTransition(t, e, f, bt) },
-                onFinished = { onSessionFinished() }
-            )
-            timerService?.startTimer(totalSeconds)
-        } else {
-            // 일시정지 후 재개
-            val title = state.selectedTaskTitle ?: state.tasks.find { it.id == state.selectedTaskId }?.title ?: "작업"
-            timerService?.setTimerConfig(
-                interval = state.activeSessionInterval,
-                rest = state.restMinutes,
-                totalSec = state.sessionTotalMinutes * 60,
-                title = title,
-                vibrate = state.vibrationEnabled,
-                sound = state.soundEnabled,
-                focusPatternId = state.focusVibrationPatternId,
-                restPatternId = state.restVibrationPatternId,
-                finishPatternId = state.finishVibrationPatternId,
-                focusSound = state.focusSoundId,
-                restSound = state.restSoundId,
-                finishSound = state.finishSoundId,
-                focusRingtoneUri = state.focusRingtoneUri,
-                restRingtoneUri = state.restRingtoneUri,
-                finishRingtoneUri = state.finishRingtoneUri,
-                onTransition = { t, e, f, bt -> onBlockTransition(t, e, f, bt) },
-                onFinished = { onSessionFinished() }
-            )
-            timerService?.startTimer(state.totalRemainingSeconds)
-        }
-    }
-
-    private fun pauseTimer() {
-        timerService?.pauseTimer()
-    }
-
-    fun skipBlock() {
-        if (!_uiState.value.isRunning) return
-        timerService?.skipToNext()
-    }
-
-    fun onBlockTransition(taskTitle: String, elapsedMinutes: Int, isFinished: Boolean, blockType: BlockType) {
-        val state = _uiState.value
-        val focusPattern = VibrationPattern.fromId(state.focusVibrationPatternId).pattern
-        val restPattern = VibrationPattern.fromId(state.restVibrationPatternId).pattern
-        val finishPattern = VibrationPattern.fromId(state.finishVibrationPatternId).pattern
-
-        val ringtoneUri = when {
-            isFinished -> state.finishRingtoneUri
-            blockType == BlockType.FOCUS -> state.focusRingtoneUri
-            else -> state.restRingtoneUri
+        if (taskId == null) {
+            _uiState.update { state ->
+                val totalSec = state.defaultTotalMinutes * 60
+                state.copy(
+                    selectedTaskId = null,
+                    selectedTaskTitle = null,
+                    currentScheduleId = null,
+                    sessionTotalMinutes = state.defaultTotalMinutes,
+                    alarmIntervalMinutes = state.storedAlarmIntervalMinutes,
+                    restMinutes = state.storedRestMinutes,
+                    totalRemainingSeconds = totalSec,
+                    remainingSeconds = state.storedAlarmIntervalMinutes * 60,
+                    isTimerActive = false,
+                    isRunning = false,
+                    timeBlocks = generateBlocks(state.storedAlarmIntervalMinutes, state.storedRestMinutes, totalSec)
+                )
+            }
+            return
         }
 
-        notificationHelper.showBlockTransitionNotification(
-            taskTitle = taskTitle, 
-            elapsedMinutes = elapsedMinutes, 
-            isFinished = isFinished,
-            currentBlockType = blockType,
-            focusVibrationPattern = focusPattern,
-            restVibrationPattern = restPattern,
-            finishVibrationPattern = finishPattern,
-            focusSoundId = state.focusSoundId,
-            restSoundId = state.restSoundId,
-            finishSoundId = state.finishSoundId,
-            vibrationEnabled = state.vibrationEnabled,
-            soundEnabled = state.soundEnabled,
-            ringtoneUri = ringtoneUri
-        )
-    }
-
-    fun onSessionFinished() {
-        timerService?.stopTimer()
-        val currentScheduleId = _uiState.value.currentScheduleId
-        val selectedTaskId = _uiState.value.selectedTaskId
-        val focusedMinutes = _uiState.value.sessionTotalMinutes
+        val task = _uiState.value.tasks.find { it.id == taskId } ?: return
+        // allSchedules에서 일치하는 스케줄이 있는지 확인 (taskId가 schedule.id와 동일할 수 있음)
+        val schedule = _uiState.value.allSchedules.find { it.id == taskId || it.taskTitle == task.title }
         
-        viewModelScope.launch {
-            // 통계 저장
-            statsRepository.addFocusMinutes(focusedMinutes)
-            statsRepository.incrementTaskCount()
-
-            if (currentScheduleId != null) {
-                scheduleRepository.getScheduleById(currentScheduleId)?.let {
-                    scheduleRepository.updateSchedule(it.copy(isCompleted = true))
-                }
-            } else if (selectedTaskId != null) {
-                // 일반 태스크 완료 처리
-                _uiState.value.tasks.find { it.id == selectedTaskId }?.let { task ->
-                    repository.updateTask(task.copy(isCompleted = true))
-                }
+        _uiState.update { state ->
+            if (schedule != null) {
+                // 스케줄 정보가 있는 경우 타이머 설정 동기화
+                val totalSec = schedule.durationMinutes * 60
+                state.copy(
+                    selectedTaskId = taskId,
+                    selectedTaskTitle = task.title,
+                    currentScheduleId = schedule.id,
+                    sessionTotalMinutes = schedule.durationMinutes,
+                    alarmIntervalMinutes = schedule.intervalMinutes,
+                    restMinutes = schedule.restMinutes,
+                    totalRemainingSeconds = totalSec,
+                    remainingSeconds = schedule.intervalMinutes * 60,
+                    isTimerActive = false,
+                    timeBlocks = generateBlocks(schedule.intervalMinutes, schedule.restMinutes, totalSec)
+                )
+            } else {
+                // 일반 Task인 경우 기본 설정 사용
+                val totalSec = state.defaultTotalMinutes * 60
+                state.copy(
+                    selectedTaskId = taskId,
+                    selectedTaskTitle = task.title,
+                    currentScheduleId = null,
+                    sessionTotalMinutes = state.defaultTotalMinutes,
+                    alarmIntervalMinutes = state.storedAlarmIntervalMinutes,
+                    restMinutes = state.storedRestMinutes,
+                    totalRemainingSeconds = totalSec,
+                    remainingSeconds = state.storedAlarmIntervalMinutes * 60,
+                    isTimerActive = false,
+                    timeBlocks = generateBlocks(state.storedAlarmIntervalMinutes, state.storedRestMinutes, totalSec)
+                )
             }
         }
-        _uiState.update { it.copy(
-            isRunning = false,
-            isTimerActive = false,
-            totalRemainingSeconds = 0,
-            currentBlockIndex = 0,
-            remainingSeconds = 0,
-            selectedTaskId = null,
-            selectedTaskTitle = null,
-            currentScheduleId = null,
-            sessionTotalMinutes = 60
-        ) }
-        generateDefaultBlocks(_uiState.value.alarmIntervalMinutes, 60)
+    }
+
+    fun toggleTaskCompletion(task: Task) {
+        viewModelScope.launch {
+            val newStatus = !task.isCompleted
+            // Task 테이블 업데이트
+            repository.updateTaskCompletion(task.id, newStatus)
+            
+            // ScheduleBlock 테이블 업데이트 (동기화)
+            val schedule = _uiState.value.allSchedules.find { it.id == task.id }
+            if (schedule != null) {
+                scheduleRepository.updateSchedule(schedule.copy(isCompleted = newStatus))
+            }
+        }
+    }
+
+    fun deleteTask(task: Task) {
+        viewModelScope.launch {
+            // Task 테이블에서 삭제
+            repository.deleteTask(task)
+            
+            // ScheduleBlock 테이블에서도 삭제 (동기화)
+            val schedule = _uiState.value.allSchedules.find { it.id == task.id }
+            if (schedule != null) {
+                scheduleRepository.deleteSchedule(schedule)
+            }
+            
+            // 현재 선택된 작업이 삭제된 경우 선택 해제
+            if (_uiState.value.selectedTaskId == task.id) {
+                selectTask(null)
+            }
+        }
+    }
+
+    fun deleteSchedule(schedule: ScheduleBlock) {
+        viewModelScope.launch {
+            scheduleRepository.deleteSchedule(schedule)
+        }
+    }
+
+    fun setDarkMode(mode: Int) {
+        viewModelScope.launch {
+            settingsRepository.setDarkMode(mode)
+        }
+    }
+
+    fun setFontSizeScale(scale: Float) {
+        viewModelScope.launch {
+            settingsRepository.setFontSizeScale(scale)
+        }
+    }
+
+    fun setFocusRingtoneUri(uri: String?) {
+        viewModelScope.launch {
+            settingsRepository.setFocusRingtoneUri(uri)
+        }
+    }
+
+    fun setRestRingtoneUri(uri: String?) {
+        viewModelScope.launch {
+            settingsRepository.setRestRingtoneUri(uri)
+        }
+    }
+
+    fun setFinishRingtoneUri(uri: String?) {
+        viewModelScope.launch {
+            settingsRepository.setFinishRingtoneUri(uri)
+        }
+    }
+
+    fun setSoundEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setSoundEnabled(enabled)
+        }
+    }
+
+    fun setVibrationEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setVibrationEnabled(enabled)
+        }
+    }
+
+    fun setFocusSound(soundId: String) {
+        viewModelScope.launch {
+            settingsRepository.setFocusSoundId(soundId)
+        }
+    }
+
+    fun setRestSound(soundId: String) {
+        viewModelScope.launch {
+            settingsRepository.setRestSoundId(soundId)
+        }
+    }
+
+    fun setFinishSound(soundId: String) {
+        viewModelScope.launch {
+            settingsRepository.setFinishSoundId(soundId)
+        }
+    }
+
+    fun setFocusVibrationPattern(patternId: String) {
+        viewModelScope.launch {
+            settingsRepository.setFocusVibrationPatternId(patternId)
+        }
+    }
+
+    fun setRestVibrationPattern(patternId: String) {
+        viewModelScope.launch {
+            settingsRepository.setRestVibrationPatternId(patternId)
+        }
+    }
+
+    fun setFinishVibrationPattern(patternId: String) {
+        viewModelScope.launch {
+            settingsRepository.setFinishVibrationPatternId(patternId)
+        }
+    }
+
+    fun previewSound(soundId: String, type: String) {
+        val state = _uiState.value
+        val uri = when (type) {
+            "focus" -> state.focusRingtoneUri
+            "rest" -> state.restRingtoneUri
+            else -> state.finishRingtoneUri
+        }
+        notificationHelper.playSound(soundId, uri, isLooping = false)
+    }
+
+    fun previewVibration(patternId: String) {
+        notificationHelper.vibratePreview(patternId)
     }
 
     fun saveSettings(
-        interval: Int,
-        rest: Int,
-        vibration: Boolean,
-        sound: Boolean,
-        calendarSync: Boolean,
+        alarmInterval: Int,
+        restMinutes: Int,
+        vibrationEnabled: Boolean,
+        soundEnabled: Boolean,
+        calendarSyncEnabled: Boolean,
         focusPatternId: String,
         restPatternId: String,
         finishPatternId: String,
@@ -868,16 +823,17 @@ class SchedulerViewModel(
         finishSoundId: String,
         defaultTotalMinutes: Int,
         darkMode: Int,
-        focusRingtoneUri: String? = null,
-        restRingtoneUri: String? = null,
-        finishRingtoneUri: String? = null
+        focusRingtoneUri: String?,
+        restRingtoneUri: String?,
+        finishRingtoneUri: String?,
+        useFullScreen: Boolean
     ) {
         viewModelScope.launch {
-            settingsRepository.setAlarmIntervalMinutes(interval)
-            settingsRepository.setRestMinutes(rest)
-            settingsRepository.setVibrationEnabled(vibration)
-            settingsRepository.setSoundEnabled(sound)
-            settingsRepository.setCalendarSyncEnabled(calendarSync)
+            settingsRepository.setAlarmIntervalMinutes(alarmInterval)
+            settingsRepository.setRestMinutes(restMinutes)
+            settingsRepository.setVibrationEnabled(vibrationEnabled)
+            settingsRepository.setSoundEnabled(soundEnabled)
+            settingsRepository.setCalendarSyncEnabled(calendarSyncEnabled)
             settingsRepository.setFocusVibrationPatternId(focusPatternId)
             settingsRepository.setRestVibrationPatternId(restPatternId)
             settingsRepository.setFinishVibrationPatternId(finishPatternId)
@@ -889,206 +845,29 @@ class SchedulerViewModel(
             settingsRepository.setFocusRingtoneUri(focusRingtoneUri)
             settingsRepository.setRestRingtoneUri(restRingtoneUri)
             settingsRepository.setFinishRingtoneUri(finishRingtoneUri)
-
-            _uiState.update { it.copy(
-                alarmIntervalMinutes = if (!it.isTimerActive) interval else it.alarmIntervalMinutes,
-                restMinutes = if (!it.isTimerActive) rest else it.restMinutes,
-                vibrationEnabled = vibration,
-                soundEnabled = sound,
-                calendarSyncEnabled = calendarSync,
-                focusVibrationPatternId = focusPatternId,
-                restVibrationPatternId = restPatternId,
-                finishVibrationPatternId = finishPatternId,
-                focusSoundId = focusSoundId,
-                restSoundId = restSoundId,
-                finishSoundId = finishSoundId,
-                defaultTotalMinutes = defaultTotalMinutes,
-                darkMode = darkMode,
-                focusRingtoneUri = focusRingtoneUri,
-                restRingtoneUri = restRingtoneUri,
-                finishRingtoneUri = finishRingtoneUri,
-                storedAlarmIntervalMinutes = interval,
-                storedRestMinutes = rest
-            ) }
+            settingsRepository.setUseFullScreenAlarm(useFullScreen)
         }
-    }
-
-    fun setDarkMode(mode: Int) {
-        viewModelScope.launch {
-            settingsRepository.setDarkMode(mode)
-            _uiState.update { it.copy(darkMode = mode) }
-        }
-    }
-
-    fun setVibrationEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.setVibrationEnabled(enabled)
-            _uiState.update { it.copy(vibrationEnabled = enabled) }
-        }
-    }
-
-    fun setSoundEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.setSoundEnabled(enabled)
-            _uiState.update { it.copy(soundEnabled = enabled) }
-        }
-    }
-
-    fun setFocusVibrationPattern(id: String) {
-        viewModelScope.launch {
-            settingsRepository.setFocusVibrationPatternId(id)
-            _uiState.update { it.copy(focusVibrationPatternId = id) }
-        }
-    }
-
-    fun setRestVibrationPattern(id: String) {
-        viewModelScope.launch {
-            settingsRepository.setRestVibrationPatternId(id)
-            _uiState.update { it.copy(restVibrationPatternId = id) }
-        }
-    }
-
-    fun setFinishVibrationPattern(id: String) {
-        viewModelScope.launch {
-            settingsRepository.setFinishVibrationPatternId(id)
-            _uiState.update { it.copy(finishVibrationPatternId = id) }
-        }
-    }
-
-    fun setFocusSound(id: String) {
-        viewModelScope.launch {
-            settingsRepository.setFocusSoundId(id)
-            _uiState.update { it.copy(focusSoundId = id) }
-        }
-    }
-
-    fun setRestSound(id: String) {
-        viewModelScope.launch {
-            settingsRepository.setRestSoundId(id)
-            _uiState.update { it.copy(restSoundId = id) }
-        }
-    }
-
-    fun setFinishSound(id: String) {
-        viewModelScope.launch {
-            settingsRepository.setFinishSoundId(id)
-            _uiState.update { it.copy(finishSoundId = id) }
-        }
-    }
-
-    fun previewVibration(patternId: String) {
-        notificationHelper.vibratePreview(patternId)
-    }
-
-    fun previewSound(soundId: String, type: String = "focus") {
-        val uri = when (type) {
-            "focus" -> _uiState.value.focusRingtoneUri
-            "rest" -> _uiState.value.restRingtoneUri
-            "finish" -> _uiState.value.finishRingtoneUri
-            else -> null
-        }
-        notificationHelper.playSound(soundId, uri, isLooping = false)
-    }
-
-    fun setFocusRingtoneUri(uri: String?) {
-        viewModelScope.launch {
-            settingsRepository.setFocusRingtoneUri(uri)
-            _uiState.update { it.copy(focusRingtoneUri = uri) }
-        }
-    }
-
-    fun setRestRingtoneUri(uri: String?) {
-        viewModelScope.launch {
-            settingsRepository.setRestRingtoneUri(uri)
-            _uiState.update { it.copy(restRingtoneUri = uri) }
-        }
-    }
-
-    fun setFinishRingtoneUri(uri: String?) {
-        viewModelScope.launch {
-            settingsRepository.setFinishRingtoneUri(uri)
-            _uiState.update { it.copy(finishRingtoneUri = uri) }
-        }
-    }
-
-    fun stopSoundPreview() {
-        notificationHelper.stopSound()
     }
 
     fun isIgnoringBatteryOptimizations(): Boolean {
-        val powerManager = app.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
-        return powerManager.isIgnoringBatteryOptimizations(app.packageName)
+        val pm = app.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+        return pm.isIgnoringBatteryOptimizations(app.packageName)
     }
 
     fun requestIgnoreBatteryOptimizations() {
-        if (!isIgnoringBatteryOptimizations()) {
-            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                data = Uri.parse("package:${app.packageName}")
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            app.startActivity(intent)
+        val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = Uri.parse("package:${app.packageName}")
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
+        app.startActivity(intent)
     }
 
-    fun deleteSchedule(schedule: ScheduleBlock) {
-        viewModelScope.launch {
-            scheduleRepository.deleteSchedule(schedule)
-        }
+    fun vibratePreview(patternId: String) {
+        notificationHelper.vibratePreview(patternId)
     }
 
-    fun updateSchedule(schedule: ScheduleBlock, newTitle: String, newDuration: Int, newInterval: Int? = null, newRest: Int? = null) {
-        viewModelScope.launch {
-            val updated = schedule.copy(
-                taskTitle = newTitle, 
-                durationMinutes = newDuration,
-                intervalMinutes = newInterval ?: schedule.intervalMinutes,
-                restMinutes = newRest ?: schedule.restMinutes
-            )
-            scheduleRepository.updateSchedule(updated)
-        }
-    }
-
-    fun toggleBlock(startTimeMillis: Long) {
-        _uiState.update { state ->
-            val anchor = state.selectionAnchor
-            if (anchor == null) {
-                state.copy(selectedBlocks = setOf(startTimeMillis), selectionAnchor = startTimeMillis)
-            } else if (anchor == startTimeMillis) {
-                // Re-tapping the anchor clears the selection
-                state.copy(selectedBlocks = emptySet(), selectionAnchor = null)
-            } else {
-                val start = Math.min(anchor, startTimeMillis)
-                val end = Math.max(anchor, startTimeMillis)
-                val newRange = mutableSetOf<Long>()
-                var current = start
-                while (current <= end) {
-                    newRange.add(current)
-                    current += 15 * 60 * 1000L
-                }
-                state.copy(selectedBlocks = newRange)
-            }
-        }
-    }
-
-    fun clearSelectedBlocks() {
-        _uiState.update { it.copy(selectedBlocks = emptySet(), selectionAnchor = null) }
-    }
-
-    fun setCalendarMonthlyView(isMonthly: Boolean) {
-        _uiState.update { it.copy(isCalendarMonthlyView = isMonthly) }
-    }
-
-    fun clearSelectionIfNotActive() {
-        if (!_uiState.value.isTimerActive) {
-            _uiState.update { it.copy(
-                selectedTaskId = null,
-                selectedTaskTitle = null,
-                currentScheduleId = null,
-                sessionTotalMinutes = 60,
-                totalRemainingSeconds = 0
-            ) }
-            generateDefaultBlocks(_uiState.value.alarmIntervalMinutes, 60)
-        }
+    fun playSound(soundId: String, uri: String? = null) {
+        notificationHelper.playSound(soundId, uri, isLooping = false)
     }
 
     companion object {

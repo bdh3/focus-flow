@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
@@ -90,6 +91,7 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
     var focusSoundId by remember { mutableStateOf(uiState.focusSoundId) }
     var restSoundId by remember { mutableStateOf(uiState.restSoundId) }
     var finishSoundId by remember { mutableStateOf(uiState.finishSoundId) }
+    var useFullScreenAlarm by remember { mutableStateOf(uiState.useFullScreenAlarm) }
     var darkMode by remember { mutableIntStateOf(uiState.darkMode) }
     var fontSizeScale by remember { mutableFloatStateOf(uiState.fontSizeScale) }
 
@@ -100,7 +102,7 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
         defaultTotalMinutes = uiState.defaultTotalMinutes
     }
 
-    LaunchedEffect(uiState.vibrationEnabled, uiState.soundEnabled, uiState.focusVibrationPatternId, uiState.restVibrationPatternId, uiState.finishVibrationPatternId, uiState.focusSoundId, uiState.restSoundId, uiState.finishSoundId, uiState.darkMode, uiState.fontSizeScale) {
+    LaunchedEffect(uiState.vibrationEnabled, uiState.soundEnabled, uiState.focusVibrationPatternId, uiState.restVibrationPatternId, uiState.finishVibrationPatternId, uiState.focusSoundId, uiState.restSoundId, uiState.finishSoundId, uiState.useFullScreenAlarm, uiState.darkMode, uiState.fontSizeScale) {
         vibrationEnabled = uiState.vibrationEnabled
         soundEnabled = uiState.soundEnabled
         focusPatternId = uiState.focusVibrationPatternId
@@ -109,6 +111,7 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
         focusSoundId = uiState.focusSoundId
         restSoundId = uiState.restSoundId
         finishSoundId = uiState.finishSoundId
+        useFullScreenAlarm = uiState.useFullScreenAlarm
         darkMode = uiState.darkMode
         fontSizeScale = uiState.fontSizeScale
     }
@@ -137,6 +140,7 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
                                      (uiState.focusSoundId != focusSoundId) ||
                                      (uiState.restSoundId != restSoundId) ||
                                      (uiState.finishSoundId != finishSoundId) ||
+                                     (uiState.useFullScreenAlarm != useFullScreenAlarm) ||
                                      (uiState.darkMode != darkMode) ||
                                      (uiState.fontSizeScale != fontSizeScale)
 
@@ -148,7 +152,8 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
                                 alarmInterval, restMinutes, vibrationEnabled, soundEnabled, 
                                 uiState.calendarSyncEnabled, focusPatternId, restPatternId, finishPatternId, 
                                 focusSoundId, restSoundId, finishSoundId, defaultTotalMinutes, darkMode,
-                                uiState.focusRingtoneUri, uiState.restRingtoneUri, uiState.finishRingtoneUri
+                                uiState.focusRingtoneUri, uiState.restRingtoneUri, uiState.finishRingtoneUri,
+                                useFullScreenAlarm
                             )
                             viewModel.setFontSizeScale(fontSizeScale)
                         },
@@ -265,7 +270,7 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    listOf(5, 10, 15, 30).forEach { interval ->
+                                    listOf(5, 10, 15, 30, 60).forEach { interval ->
                                         Box(
                                             modifier = Modifier
                                                 .weight(1f)
@@ -276,7 +281,7 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(
-                                                "${interval}분",
+                                                if (interval >= 60) "${interval / 60}시간" else "${interval}분",
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 color = if (alarmInterval == interval) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
                                             )
@@ -389,8 +394,9 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
                         checked = soundEnabled,
                         onCheckedChange = { 
                             soundEnabled = it
-                            viewModel.setSoundEnabled(it)
-                        }
+                            // viewModel.setSoundEnabled(it) // 즉시 저장 제거
+                        },
+                        enabled = !uiState.isTimerActive // 타이머 작동 중 비활성화
                     )
                 }
             )
@@ -476,8 +482,9 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
                         checked = vibrationEnabled,
                         onCheckedChange = { 
                             vibrationEnabled = it
-                            viewModel.setVibrationEnabled(it)
-                        }
+                            // viewModel.setVibrationEnabled(it) // 즉시 저장 제거
+                        },
+                        enabled = !uiState.isTimerActive
                     )
                 }
             )
@@ -524,6 +531,67 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
                     }
                 }
             }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+            Text("알람 표시 방식", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                    .padding(4.dp)
+            ) {
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp)
+                            .clip(MaterialTheme.shapes.medium)
+                            .background(if (useFullScreenAlarm) MaterialTheme.colorScheme.primary else Color.Transparent)
+                            .clickable(enabled = !uiState.isTimerActive) { useFullScreenAlarm = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "전체 화면 알람",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (useFullScreenAlarm) MaterialTheme.colorScheme.onPrimary 
+                                    else if (uiState.isTimerActive) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp)
+                            .clip(MaterialTheme.shapes.medium)
+                            .background(if (!useFullScreenAlarm) MaterialTheme.colorScheme.primary else Color.Transparent)
+                            .clickable(enabled = !uiState.isTimerActive) { useFullScreenAlarm = false },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "상단 팝업 알람",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (!useFullScreenAlarm) MaterialTheme.colorScheme.onPrimary 
+                                    else if (uiState.isTimerActive) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Text(
+                text = if (useFullScreenAlarm) 
+                    "• 화면 전체를 점유하며 상세 메시지를 함께 표시합니다.\n• 벨소리, 알림음, 진동 모두 지원합니다." 
+                    else 
+                    "• 화면 상단에 간결하게 표시됩니다. (알림 내용 생략)\n• 벨소리 설정 시에도 수동 중지를 위해 전체 화면으로 전환됩니다.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                lineHeight = 16.sp
+            )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 

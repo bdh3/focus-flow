@@ -32,6 +32,7 @@ class SettingsRepository(private val context: Context) {
         val FINISH_RINGTONE_URI = stringPreferencesKey("finish_ringtone_uri")
         val DARK_MODE = intPreferencesKey("dark_mode") // 0: System, 1: Light, 2: Dark
         val FONT_SIZE_SCALE = floatPreferencesKey("font_size_scale") // 0.85f: Small, 1.0f: Medium, 1.15f: Large
+        val USE_FULL_SCREEN_ALARM = booleanPreferencesKey("use_full_screen_alarm")
     }
 
     val calendarSyncEnabled: Flow<Boolean> = context.dataStore.data
@@ -122,6 +123,11 @@ class SettingsRepository(private val context: Context) {
     val fontSizeScale: Flow<Float> = context.dataStore.data
         .map { preferences ->
             preferences[FONT_SIZE_SCALE] ?: 1.0f
+        }
+
+    val useFullScreenAlarm: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[USE_FULL_SCREEN_ALARM] ?: true
         }
 
     suspend fun setCalendarSyncEnabled(enabled: Boolean) {
@@ -232,6 +238,12 @@ class SettingsRepository(private val context: Context) {
     suspend fun setFontSizeScale(scale: Float) {
         context.dataStore.edit { preferences ->
             preferences[FONT_SIZE_SCALE] = scale
+        }
+    }
+
+    suspend fun setUseFullScreenAlarm(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[USE_FULL_SCREEN_ALARM] = enabled
         }
     }
 

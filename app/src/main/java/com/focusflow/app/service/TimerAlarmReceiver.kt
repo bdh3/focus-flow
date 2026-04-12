@@ -3,17 +3,21 @@ package com.focusflow.app.service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import com.focusflow.app.model.BlockType
+import com.focusflow.app.util.BlockType
 import com.focusflow.app.util.NotificationHelper
 import com.focusflow.app.util.VibrationPattern
 
 class TimerAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        // [v1.7.3] 서비스가 종료된 상태라면 예약된 알람을 무시 (중지 후 잔여 알람 방지)
+        if (!TimerService.isServiceRunning) return
+
         val taskTitle = intent.getStringExtra("taskTitle") ?: "작업"
         val elapsedMinutes = intent.getIntExtra("elapsedMinutes", 0)
         val isFinished = intent.getBooleanExtra("isFinished", false)
         val vibrationEnabled = intent.getBooleanExtra("vibrationEnabled", true)
         val soundEnabled = intent.getBooleanExtra("soundEnabled", true)
+        val useFullScreen = intent.getBooleanExtra("useFullScreen", false)
         
         val blockTypeName = intent.getStringExtra("blockType") ?: BlockType.FOCUS.name
         val currentBlockType = try { BlockType.valueOf(blockTypeName) } catch (e: Exception) { BlockType.FOCUS }
@@ -44,7 +48,9 @@ class TimerAlarmReceiver : BroadcastReceiver() {
             finishSoundId = finishSoundId,
             vibrationEnabled = vibrationEnabled,
             soundEnabled = soundEnabled,
-            ringtoneUri = ringtoneUri
+            ringtoneUri = ringtoneUri,
+            useFullScreen = useFullScreen,
+            isManualSkip = false // 알람 리시버를 통한 알람은 수동 넘기기가 아님
         )
     }
 }

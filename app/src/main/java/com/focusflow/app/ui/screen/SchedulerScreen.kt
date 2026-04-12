@@ -8,7 +8,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,9 +21,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 
-import com.focusflow.app.model.BlockType
 import com.focusflow.app.model.Task
 import com.focusflow.app.model.TimeBlock
+import com.focusflow.app.util.BlockType
 import com.focusflow.app.ui.viewmodel.SchedulerViewModel
 import java.util.Calendar
 import java.util.Locale
@@ -43,7 +46,7 @@ fun SchedulerScreen(viewModel: SchedulerViewModel, onNavigateToCalendar: () -> U
                 .padding(padding)
                 .padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(24.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(bottom = 32.dp)
         ) {
             item {
@@ -67,11 +70,11 @@ fun SchedulerScreen(viewModel: SchedulerViewModel, onNavigateToCalendar: () -> U
             }
 
             item {
-                Column {
+                Column(modifier = Modifier.padding(vertical = 8.dp)) {
                     Text(
                         text = "현재 세션 흐름",
                         style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
                     )
                     
                     Row(
@@ -109,7 +112,7 @@ fun SchedulerScreen(viewModel: SchedulerViewModel, onNavigateToCalendar: () -> U
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "작업 리스트",
+                            text = "오늘 작업 리스트",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -134,21 +137,38 @@ fun SchedulerScreen(viewModel: SchedulerViewModel, onNavigateToCalendar: () -> U
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                     )
                 }
+                
+                // [v1.7.3-patch1] 작업을 선택하지 않고 "독립 세션"으로 시작한 경우 가상 아이템 표시
+                if (uiState.isRunning && uiState.selectedTaskId == null) {
+                    item {
+                        TaskItem(
+                            task = Task(
+                                id = "independent_focus",
+                                title = "독립 세션",
+                                durationMinutes = uiState.sessionTotalMinutes,
+                                isCompleted = false
+                            ),
+                            isSelected = true,
+                            onSelect = {},
+                            onToggle = {},
+                            onDelete = {}
+                        )
+                    }
+                }
             }
 
-            val tasksToShow = if (uiState.isRunning) {
-                uiState.tasks.filter { it.id == uiState.selectedTaskId }
-            } else {
-                uiState.tasks
-            }
+            val tasksToShow = uiState.tasks
 
-            if (tasksToShow.isEmpty() && uiState.isRunning) {
+            if (tasksToShow.isEmpty()) {
                 item {
-                    Text(
-                        text = uiState.selectedTaskTitle ?: "작업 없음",
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.padding(16.dp)
-                    )
+                    Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "오늘 추가된 작업이 없습니다.\n상단의 '추가' 버튼을 눌러 등록하세요.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.outline,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
                 }
             }
 
@@ -239,7 +259,7 @@ fun TimerHeader(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
-            modifier = Modifier.padding(24.dp),
+            modifier = Modifier.padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
@@ -251,7 +271,7 @@ fun TimerHeader(
             )
             
             Text(
-                text = "현재 블록 $blockTimeText 남음",
+                text = if (isRunning || totalRemainingSeconds > 0) "현재 블록 $blockTimeText 남음" else "준비 완료",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.padding(bottom = 16.dp)
@@ -260,25 +280,25 @@ fun TimerHeader(
             Box(contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(
                     progress = { progress },
-                    modifier = Modifier.size(240.dp), // 크기를 220dp에서 240dp로 키움
-                    strokeWidth = 12.dp,
+                    modifier = Modifier.size(220.dp),
+                    strokeWidth = 10.dp,
                     color = if (blockType == BlockType.FOCUS) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                strokeCap = StrokeCap.Round
-            )
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = timeText,
-                    style = if (timeText.length > 5) MaterialTheme.typography.displayMedium else MaterialTheme.typography.displayLarge,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    strokeCap = StrokeCap.Round
                 )
-                Text(
-                    text = if (blockType == BlockType.FOCUS) "전체 남은 시간" else "휴식 중",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (blockType == BlockType.FOCUS) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.tertiary
-                )
-            }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = timeText,
+                        style = if (timeText.length > 5) MaterialTheme.typography.displayMedium else MaterialTheme.typography.displayLarge,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = if (blockType == BlockType.FOCUS) "전체 남은 시간" else "휴식 중",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (blockType == BlockType.FOCUS) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.tertiary
+                    )
+                }
             }
             
             Spacer(modifier = Modifier.height(24.dp))
@@ -287,30 +307,38 @@ fun TimerHeader(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // [v1.7.3] 작업이 선택되지 않았을 때는 무조건 '시작' 버튼만 표시
+                val isTaskSelected = selectedTaskTitle != null
+
                 Button(
                     onClick = onToggleTimer,
-                    modifier = Modifier.weight(1.2f),
+                    modifier = Modifier.weight(if (isTaskSelected && (isRunning || totalRemainingSeconds > 0)) 1.2f else 1f),
                     shape = MaterialTheme.shapes.medium,
                     contentPadding = PaddingValues(horizontal = 4.dp)
                 ) {
-                    val isSessionActive = totalRemainingSeconds > 0 && totalRemainingSeconds < 3600*24
+                    val isSessionActive = totalRemainingSeconds > 0
                     val totalSecs = sessionTotalMinutes * 60
-                    // 진행 시간이 전혀 없을 때만 "시작"
-                    val isInitialState = totalRemainingSeconds >= totalSecs
+                    val isInitialState = totalRemainingSeconds >= totalSecs || totalRemainingSeconds == 0
                     
+                    Icon(
+                        if (isRunning) Icons.Default.Refresh else Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
                     Text(
                         when {
                             isRunning -> "일시정지"
-                            isInitialState -> "시작"
+                            !isTaskSelected || isInitialState -> "시작"
                             isSessionActive -> "재개"
                             else -> "시작"
                         },
-                        maxLines = 1,
-                        softWrap = false
+                        maxLines = 1
                     )
                 }
                 
-                if (isRunning || (totalRemainingSeconds > 0 && totalRemainingSeconds < 3600*24)) {
+                // 작업이 선택되었고 활성 세션이 있을 때만 중지/넘기기 표시
+                if (isTaskSelected && (isRunning || totalRemainingSeconds > 0)) {
                     OutlinedButton(
                         onClick = onStopTimer,
                         modifier = Modifier.weight(0.7f),
@@ -318,18 +346,18 @@ fun TimerHeader(
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                         contentPadding = PaddingValues(horizontal = 4.dp)
                     ) {
-                        Text("중지", maxLines = 1, softWrap = false)
+                        Text("중지", maxLines = 1)
                     }
-                }
 
-                if (isRunning) {
-                    OutlinedButton(
-                        onClick = onSkip,
-                        modifier = Modifier.weight(0.8f),
-                        shape = MaterialTheme.shapes.medium,
-                        contentPadding = PaddingValues(horizontal = 4.dp)
-                    ) {
-                        Text(text = "넘기기", maxLines = 1, softWrap = false)
+                    if (isRunning) {
+                        OutlinedButton(
+                            onClick = onSkip,
+                            modifier = Modifier.weight(0.8f),
+                            shape = MaterialTheme.shapes.medium,
+                            contentPadding = PaddingValues(horizontal = 4.dp)
+                        ) {
+                            Text(text = "넘기기", maxLines = 1)
+                        }
                     }
                 }
             }
@@ -345,9 +373,25 @@ fun TaskItem(
     onToggle: () -> Unit, 
     onDelete: () -> Unit
 ) {
+    // 시작 시간과 종료 시간 계산 (예: 14:00 ~ 15:15)
+    val timeRangeText = if (task.startTimeMillis > 0) {
+        val startCal = Calendar.getInstance().apply { timeInMillis = task.startTimeMillis }
+        val endCal = Calendar.getInstance().apply { 
+            timeInMillis = task.startTimeMillis 
+            add(Calendar.MINUTE, task.durationMinutes)
+        }
+        String.format(Locale.getDefault(), "%02d:%02d ~ %02d:%02d", 
+            startCal.get(Calendar.HOUR_OF_DAY), startCal.get(Calendar.MINUTE),
+            endCal.get(Calendar.HOUR_OF_DAY), endCal.get(Calendar.MINUTE)
+        )
+    } else {
+        "--:--"
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(vertical = 4.dp)
             .clickable { onSelect() },
         colors = CardDefaults.cardColors(
             containerColor = when {
@@ -363,25 +407,34 @@ fun TaskItem(
     ) {
         Row(
             modifier = Modifier
-                .padding(12.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Checkbox(
                 checked = task.isCompleted,
-                onCheckedChange = { onToggle() }
+                onCheckedChange = { onToggle() },
+                modifier = Modifier.padding(end = 4.dp)
             )
-            Text(
-                text = task.title,
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = task.title,
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                    ),
+                    maxLines = 1
                 )
-            )
+                Text(
+                    text = timeRangeText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                )
+            }
             
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "삭제", tint = MaterialTheme.colorScheme.error)
+            IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.Delete, contentDescription = "삭제", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
             }
         }
     }

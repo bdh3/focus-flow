@@ -1,11 +1,7 @@
 package com.focusflow.app.model
 
+import com.focusflow.app.util.BlockType
 import java.util.UUID
-
-enum class BlockType {
-    FOCUS,
-    REST
-}
 
 data class TimeBlock(
     val id: String = UUID.randomUUID().toString(),
