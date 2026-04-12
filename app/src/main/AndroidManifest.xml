@@ -57,7 +57,10 @@
             android:showOnLockScreen="true"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
-            android:theme="@style/Theme.FocusFlow" />
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:theme="@style/Theme.FocusFlow">
+            <meta-data android:name="com.samsung.android.multidisplay.keep_process_alive" android:value="true" />
+        </activity>
     </application>
 
 </manifest>

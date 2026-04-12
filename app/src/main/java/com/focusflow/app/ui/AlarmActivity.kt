@@ -30,11 +30,23 @@ import com.focusflow.app.util.NotificationHelper
 
 class AlarmActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        // ... (생략된 기존 설정 코드)
-        
         super.onCreate(savedInstanceState)
         
-        // ... (생략된 잠금 해제 코드)
+        // [v1.7.3] 화면이 꺼져 있을 때 깨우고 잠금 화면 위로 띄우는 설정
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            keyguardManager.requestDismissKeyguard(this, null)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            )
+        }
 
         // 2. 사운드 및 알림 매니저 접근
         val notificationHelper = NotificationHelper.getInstance(this)
