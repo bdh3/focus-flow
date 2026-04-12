@@ -27,6 +27,9 @@ class SettingsRepository(private val context: Context) {
         val FOCUS_SOUND_ID = stringPreferencesKey("focus_sound_id")
         val REST_SOUND_ID = stringPreferencesKey("rest_sound_id")
         val FINISH_SOUND_ID = stringPreferencesKey("finish_sound_id")
+        val FOCUS_RINGTONE_URI = stringPreferencesKey("focus_ringtone_uri")
+        val REST_RINGTONE_URI = stringPreferencesKey("rest_ringtone_uri")
+        val FINISH_RINGTONE_URI = stringPreferencesKey("finish_ringtone_uri")
         val DARK_MODE = intPreferencesKey("dark_mode") // 0: System, 1: Light, 2: Dark
         val FONT_SIZE_SCALE = floatPreferencesKey("font_size_scale") // 0.85f: Small, 1.0f: Medium, 1.15f: Large
     }
@@ -94,6 +97,21 @@ class SettingsRepository(private val context: Context) {
     val finishSoundId: Flow<String> = context.dataStore.data
         .map { preferences ->
             preferences[FINISH_SOUND_ID] ?: "gentle"
+        }
+
+    val focusRingtoneUri: Flow<String?> = context.dataStore.data
+        .map { preferences ->
+            preferences[FOCUS_RINGTONE_URI]
+        }
+
+    val restRingtoneUri: Flow<String?> = context.dataStore.data
+        .map { preferences ->
+            preferences[REST_RINGTONE_URI]
+        }
+
+    val finishRingtoneUri: Flow<String?> = context.dataStore.data
+        .map { preferences ->
+            preferences[FINISH_RINGTONE_URI]
         }
 
     val darkMode: Flow<Int> = context.dataStore.data
@@ -181,6 +199,27 @@ class SettingsRepository(private val context: Context) {
     suspend fun setFinishSoundId(id: String) {
         context.dataStore.edit { preferences ->
             preferences[FINISH_SOUND_ID] = id
+        }
+    }
+
+    suspend fun setFocusRingtoneUri(uri: String?) {
+        context.dataStore.edit { preferences ->
+            if (uri == null) preferences.remove(FOCUS_RINGTONE_URI)
+            else preferences[FOCUS_RINGTONE_URI] = uri
+        }
+    }
+
+    suspend fun setRestRingtoneUri(uri: String?) {
+        context.dataStore.edit { preferences ->
+            if (uri == null) preferences.remove(REST_RINGTONE_URI)
+            else preferences[REST_RINGTONE_URI] = uri
+        }
+    }
+
+    suspend fun setFinishRingtoneUri(uri: String?) {
+        context.dataStore.edit { preferences ->
+            if (uri == null) preferences.remove(FINISH_RINGTONE_URI)
+            else preferences[FINISH_RINGTONE_URI] = uri
         }
     }
 

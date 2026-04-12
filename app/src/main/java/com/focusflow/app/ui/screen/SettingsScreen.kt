@@ -21,7 +21,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-
+import android.content.Intent
+import android.media.RingtoneManager
+import android.net.Uri
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.net.toUri
 import com.focusflow.app.BuildConfig
 import com.focusflow.app.ui.viewmodel.SchedulerViewModel
 import com.focusflow.app.util.VibrationPattern
@@ -31,6 +37,41 @@ import kotlin.math.abs
 @Composable
 fun SettingsScreen(viewModel: SchedulerViewModel) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    var currentPickingType by remember { mutableStateOf("focus") }
+
+    val ringtonePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            }
+            when (currentPickingType) {
+                "focus" -> viewModel.setFocusRingtoneUri(uri?.toString())
+                "rest" -> viewModel.setRestRingtoneUri(uri?.toString())
+                "finish" -> viewModel.setFinishRingtoneUri(uri?.toString())
+            }
+        }
+    }
+
+    fun getRingtoneName(uriStr: String?): String {
+        if (uriStr == null) return "시스템 기본 벨소리"
+        return try {
+            val uri = uriStr.toUri()
+            RingtoneManager.getRingtone(context, uri)?.getTitle(context) ?: "시스템 기본 벨소리"
+        } catch (e: Exception) {
+            "시스템 기본 벨소리"
+        }
+    }
+
+    val focusRingtoneName = remember(uiState.focusRingtoneUri) { getRingtoneName(uiState.focusRingtoneUri) }
+    val restRingtoneName = remember(uiState.restRingtoneUri) { getRingtoneName(uiState.restRingtoneUri) }
+    val finishRingtoneName = remember(uiState.finishRingtoneUri) { getRingtoneName(uiState.finishRingtoneUri) }
     
     // 화면을 벗어날 때 소리 미리보기를 중단합니다.
     DisposableEffect(Unit) {
@@ -103,7 +144,12 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
 
                     Button(
                         onClick = {
-                            viewModel.saveSettings(alarmInterval, restMinutes, vibrationEnabled, soundEnabled, uiState.calendarSyncEnabled, focusPatternId, restPatternId, finishPatternId, focusSoundId, restSoundId, finishSoundId, defaultTotalMinutes, darkMode)
+                            viewModel.saveSettings(
+                                alarmInterval, restMinutes, vibrationEnabled, soundEnabled, 
+                                uiState.calendarSyncEnabled, focusPatternId, restPatternId, finishPatternId, 
+                                focusSoundId, restSoundId, finishSoundId, defaultTotalMinutes, darkMode,
+                                uiState.focusRingtoneUri, uiState.restRingtoneUri, uiState.finishRingtoneUri
+                            )
                             viewModel.setFontSizeScale(fontSizeScale)
                         },
                         modifier = Modifier.padding(end = 8.dp),
@@ -360,33 +406,63 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
                         SoundPatternSelector(
                             label = "집중 시작",
                             selectedId = focusSoundId,
+                            ringtoneName = focusRingtoneName,
                             onSelected = { 
                                 focusSoundId = it
                                 viewModel.setFocusSound(it)
-                                viewModel.previewSound(it)
-                            }
+                                // 벨소리가 아닐 때만 미리듣기 재생 (벨소리는 피커에서 자체 재생됨)
+                                if (it != "ringtone") {
+                                    viewModel.previewSound(it, "focus")
+                                }
+                            },
+                            onRingtoneClick = {
+                                currentPickingType = "focus"
+                                viewModel.stopSoundPreview()
+                                launchRingtonePicker(ringtonePickerLauncher, uiState.focusRingtoneUri)
+                            },
+                            onStopPreview = { viewModel.stopSoundPreview() }
                         )
                     }
                     Box(modifier = Modifier.weight(1f)) {
                         SoundPatternSelector(
                             label = "휴식 시작",
                             selectedId = restSoundId,
+                            ringtoneName = restRingtoneName,
                             onSelected = { 
                                 restSoundId = it
                                 viewModel.setRestSound(it)
-                                viewModel.previewSound(it)
-                            }
+                                // 벨소리가 아닐 때만 미리듣기 재생
+                                if (it != "ringtone") {
+                                    viewModel.previewSound(it, "rest")
+                                }
+                            },
+                            onRingtoneClick = {
+                                currentPickingType = "rest"
+                                viewModel.stopSoundPreview()
+                                launchRingtonePicker(ringtonePickerLauncher, uiState.restRingtoneUri)
+                            },
+                            onStopPreview = { viewModel.stopSoundPreview() }
                         )
                     }
                     Box(modifier = Modifier.weight(1f)) {
                         SoundPatternSelector(
                             label = "전체 종료",
                             selectedId = finishSoundId,
+                            ringtoneName = finishRingtoneName,
                             onSelected = { 
                                 finishSoundId = it
                                 viewModel.setFinishSound(it)
-                                viewModel.previewSound(it)
-                            }
+                                // 벨소리가 아닐 때만 미리듣기 재생
+                                if (it != "ringtone") {
+                                    viewModel.previewSound(it, "finish")
+                                }
+                            },
+                            onRingtoneClick = {
+                                currentPickingType = "finish"
+                                viewModel.stopSoundPreview()
+                                launchRingtonePicker(ringtonePickerLauncher, uiState.finishRingtoneUri)
+                            },
+                            onStopPreview = { viewModel.stopSoundPreview() }
                         )
                     }
                 }
@@ -579,7 +655,10 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
 fun SoundPatternSelector(
     label: String,
     selectedId: String,
-    onSelected: (String) -> Unit
+    ringtoneName: String,
+    onSelected: (String) -> Unit,
+    onRingtoneClick: () -> Unit,
+    onStopPreview: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
     val patterns = com.focusflow.app.util.SoundPattern.getAllPatterns()
@@ -595,10 +674,11 @@ fun SoundPatternSelector(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = currentPattern.displayName,
+                text = if (selectedId == "ringtone") ringtoneName else currentPattern.displayName,
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1
+                maxLines = 1,
+                color = if (selectedId == "ringtone") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
             )
             Icon(
                 imageVector = Icons.Default.ArrowDropDown,
@@ -613,9 +693,23 @@ fun SoundPatternSelector(
         ) {
             patterns.forEach { pattern ->
                 DropdownMenuItem(
-                    text = { Text(pattern.displayName, style = MaterialTheme.typography.bodyMedium) },
+                    text = { 
+                        Text(
+                            text = if (pattern.id == "ringtone") "벨소리: $ringtoneName" else pattern.displayName,
+                            style = MaterialTheme.typography.bodyMedium
+                        ) 
+                    },
                     onClick = {
-                        onSelected(pattern.id)
+                        if (pattern.id == "ringtone") {
+                            // 벨소리를 선택했거나, 이미 벨소리인 상태에서 다시 누른 경우
+                            // 미리듣기를 재생하지 않고(중복 방지) 바로 피커만 띄움
+                            onRingtoneClick()
+                            onSelected(pattern.id)
+                        } else {
+                            // 일반 효과음을 선택한 경우 기존 소리 중단 후 선택 및 미리듣기 재생
+                            onStopPreview()
+                            onSelected(pattern.id)
+                        }
                         expanded = false
                     }
                 )
@@ -671,4 +765,34 @@ fun VibrationPatternSelector(
             }
         }
     }
+}
+
+@Composable
+fun RingtonePickerButton(
+    label: String,
+    ringtoneName: String,
+    onClick: () -> Unit
+) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("$label: $ringtoneName", style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+fun launchRingtonePicker(launcher: androidx.activity.result.ActivityResultLauncher<Intent>, existingUri: String?) {
+    val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+        putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_RINGTONE)
+        putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "벨소리 선택")
+        putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, existingUri?.toUri())
+        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+    }
+    launcher.launch(intent)
 }

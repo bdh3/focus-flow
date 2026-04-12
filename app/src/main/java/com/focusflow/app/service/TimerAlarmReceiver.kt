@@ -24,12 +24,13 @@ class TimerAlarmReceiver : BroadcastReceiver() {
         val focusSoundId = intent.getStringExtra("focusSoundId") ?: "default"
         val restSoundId = intent.getStringExtra("restSoundId") ?: "default"
         val finishSoundId = intent.getStringExtra("finishSoundId") ?: "default"
+        val ringtoneUri = intent.getStringExtra("ringtoneUri")
         
         val focusPattern = VibrationPattern.fromId(focusPatternId).pattern
         val restPattern = VibrationPattern.fromId(restPatternId).pattern
         val finishPattern = VibrationPattern.fromId(finishPatternId).pattern
 
-        val notificationHelper = NotificationHelper(context)
+        val notificationHelper = NotificationHelper.getInstance(context)
         notificationHelper.showBlockTransitionNotification(
             taskTitle = taskTitle,
             elapsedMinutes = elapsedMinutes,
@@ -42,7 +43,8 @@ class TimerAlarmReceiver : BroadcastReceiver() {
             restSoundId = restSoundId,
             finishSoundId = finishSoundId,
             vibrationEnabled = vibrationEnabled,
-            soundEnabled = soundEnabled
+            soundEnabled = soundEnabled,
+            ringtoneUri = ringtoneUri
         )
     }
 }

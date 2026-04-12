@@ -6,8 +6,10 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -18,14 +20,15 @@ import com.focusflow.app.model.BlockType
 import com.focusflow.app.ui.MainActivity
 import kotlinx.coroutines.*
 
-class NotificationHelper(private val context: Context) {
+class NotificationHelper private constructor(private val context: Context) {
     private val notificationManager =
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     private val audioManager = 
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
     private var ringtonePlayer: android.media.Ringtone? = null
-    private val toneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, 100)
+    private var notificationToneGenerator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80)
+    private var alarmToneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, 80)
 
     companion object {
         const val ALARM_VIBRATE_CHANNEL_ID = "block_scheduler_vibrate_channel_v3"
@@ -33,6 +36,15 @@ class NotificationHelper(private val context: Context) {
         const val SILENT_SERVICE_CHANNEL_ID = "block_scheduler_service_channel_v3"
         const val NOTIFICATION_ID = 1001
         const val FINISHED_NOTIFICATION_ID = 1002
+
+        @Volatile
+        private var INSTANCE: NotificationHelper? = null
+
+        fun getInstance(context: Context): NotificationHelper {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: NotificationHelper(context.applicationContext).also { INSTANCE = it }
+            }
+        }
     }
 
     init {
@@ -43,7 +55,7 @@ class NotificationHelper(private val context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val vibrateChannel = NotificationChannel(
                 ALARM_VIBRATE_CHANNEL_ID,
-                "몰입 알림 (커스텀 패턴)",
+                "몰입 알림",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 enableVibration(false)
@@ -52,7 +64,7 @@ class NotificationHelper(private val context: Context) {
 
             val silentAlarmChannel = NotificationChannel(
                 ALARM_SILENT_CHANNEL_ID,
-                "몰입 알림 (무음/무진동)",
+                "몰입 알림 (무음)",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 enableVibration(false)
@@ -83,20 +95,21 @@ class NotificationHelper(private val context: Context) {
         restSoundId: String,
         finishSoundId: String,
         vibrationEnabled: Boolean,
-        soundEnabled: Boolean = true
+        soundEnabled: Boolean = true,
+        ringtoneUri: String? = null
     ) {
         val title = if (isFinished) "몰입 완료! 🎉" else "몰입 중"
         val message = when {
             isFinished -> "[$taskTitle] 모든 세션을 마쳤습니다."
-            elapsedMinutes == 0 -> "[$taskTitle] 몰입을 시작합니다. 화이팅!"
-            currentBlockType == BlockType.REST -> "[$taskTitle] ${elapsedMinutes}분 경과되었습니다. 휴식 시간입니다."
+            elapsedMinutes == 0 -> "[$taskTitle] 몰입을 시작합니다."
+            currentBlockType == BlockType.REST -> "[$taskTitle] 휴식 시간입니다."
             else -> "[$taskTitle] ${elapsedMinutes}분 경과되었습니다."
         }
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra("navigate_to", "timer")
-            putExtra("stop_alarm", true) // 알림 터치 시 소리 중지 플래그
+            putExtra("stop_alarm", true)
         }
         val pendingIntent = PendingIntent.getActivity(
             context, 0, intent,
@@ -104,18 +117,17 @@ class NotificationHelper(private val context: Context) {
         )
 
         val builder = NotificationCompat.Builder(context, ALARM_SILENT_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(title)
             .setContentText(message)
             .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
-            .setSound(null)
-            .setVibrate(null)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
 
         notificationManager.notify(if (isFinished) FINISHED_NOTIFICATION_ID else NOTIFICATION_ID, builder.build())
         
-        // 수동 진동/소리 실행
         if (vibrationEnabled && audioManager.ringerMode != AudioManager.RINGER_MODE_SILENT) {
             val pattern = when {
                 isFinished -> finishVibrationPattern
@@ -125,64 +137,105 @@ class NotificationHelper(private val context: Context) {
             vibrate(pattern)
         }
 
-        if (soundEnabled && audioManager.ringerMode == AudioManager.RINGER_MODE_NORMAL) {
+        if (soundEnabled && audioManager.ringerMode != AudioManager.RINGER_MODE_SILENT) {
             val sId = when {
                 isFinished -> finishSoundId
                 currentBlockType == BlockType.FOCUS -> focusSoundId
                 else -> restSoundId
             }
-            playSound(sId)
+            
+            // 유저 경험 개선: 타이머 '최초 시작(elapsedMinutes == 0)' 시에는 
+            // 설정이 벨소리(ringtone)더라도 소리를 내지 않음 (시작 버튼 클릭음으로 충분)
+            if (elapsedMinutes == 0 && sId == "ringtone") {
+                return
+            }
+
+            // 전체 종료이거나 벨소리 모드인 경우 알람 스트림 사용 권장
+            val isAlarmType = isFinished || sId == "ringtone"
+            playSound(sId, ringtoneUri, isLooping = isFinished, isAlarmType = isAlarmType)
         }
     }
 
-    fun playSound(soundId: String) {
+    fun playSound(soundId: String, ringtoneUri: String? = null, isLooping: Boolean = true, isAlarmType: Boolean = false) {
         serviceScope.launch {
             try {
-                stopSound() 
+                stopSound() // 기존 소리 무조건 정지
+
+                if (soundId == "ringtone") {
+                    val uri = if (!ringtoneUri.isNullOrEmpty()) {
+                        Uri.parse(ringtoneUri)
+                    } else {
+                        RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                    }
+                    
+                    ringtonePlayer = RingtoneManager.getRingtone(context, uri).apply {
+                        audioAttributes = AudioAttributes.Builder()
+                            .setUsage(if (isAlarmType) AudioAttributes.USAGE_ALARM else AudioAttributes.USAGE_NOTIFICATION)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build()
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            this.isLooping = isLooping
+                        }
+                        play()
+                    }
+                    return@launch
+                }
+
+                val usage = if (isAlarmType) AudioAttributes.USAGE_ALARM else AudioAttributes.USAGE_NOTIFICATION
+                val generator = if (isAlarmType) alarmToneGenerator else notificationToneGenerator
+
                 when (soundId) {
-                    "focus_default", "focus_start" -> {
-                        // 집중: 경쾌한 상승 비프음
-                        toneGenerator.startTone(ToneGenerator.TONE_PROP_ACK, 200)
+                    "focus_start", "focus_default" -> {
+                        // 기기마다 다른 시스템 소리 대신 일관된 비프음 사용
+                        generator.startTone(ToneGenerator.TONE_PROP_ACK, 200)
                     }
-                    "rest_default", "rest_start" -> {
-                        // 휴식: 부드러운 하강 비프음
-                        toneGenerator.startTone(ToneGenerator.TONE_CDMA_PIP, 300)
+                    "rest_start", "rest_default" -> {
+                        generator.startTone(ToneGenerator.TONE_PROP_BEEP, 200)
                     }
-                    "finish_default", "finish_start", "finish_triple" -> {
-                        // 종료: 기분 좋은 삼중 비프음
+                    "finish_triple" -> {
                         repeat(3) {
-                            toneGenerator.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
-                            delay(250)
+                            generator.startTone(ToneGenerator.TONE_SUP_PIP, 150)
+                            delay(300)
                         }
                     }
                     "warning" -> {
-                        // 경고: 날카롭고 강한 비프음
-                        toneGenerator.startTone(ToneGenerator.TONE_CDMA_HIGH_L, 500)
+                        generator.startTone(ToneGenerator.TONE_CDMA_HIGH_L, 500)
                     }
-                    "simple", "simple1" -> {
-                        // 심플1: 아주 짧은 클릭음
-                        toneGenerator.startTone(ToneGenerator.TONE_PROP_PROMPT, 100)
+                    "simple1" -> {
+                        generator.startTone(ToneGenerator.TONE_PROP_PROMPT, 100)
                     }
-                    "short_double", "simple2" -> {
-                        // 심플2: 짧은 이중 클릭음
-                        toneGenerator.startTone(ToneGenerator.TONE_PROP_PROMPT, 80)
+                    "simple2" -> {
+                        generator.startTone(ToneGenerator.TONE_PROP_PROMPT, 80)
                         delay(150)
-                        toneGenerator.startTone(ToneGenerator.TONE_PROP_PROMPT, 80)
-                    }
-                    "ringtone" -> {
-                        // 벨소리: 1회만 재생 (루핑 제거)
-                        val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-                        ringtonePlayer = RingtoneManager.getRingtone(context, uri).apply {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) isLooping = false
-                            play()
-                        }
+                        generator.startTone(ToneGenerator.TONE_PROP_PROMPT, 80)
                     }
                     else -> {
-                        // 기본: 표준 알림음
-                        toneGenerator.startTone(ToneGenerator.TONE_PROP_BEEP2, 200)
+                        generator.startTone(ToneGenerator.TONE_PROP_BEEP, 200)
                     }
                 }
             } catch (e: Exception) { e.printStackTrace() }
+        }
+    }
+
+    private fun playSystemSound(type: Int, index: Int, usage: Int, generator: ToneGenerator) {
+        try {
+            val manager = RingtoneManager(context)
+            manager.setType(type)
+            val cursor = manager.cursor
+            if (cursor != null && cursor.moveToPosition(index)) {
+                val uri = manager.getRingtoneUri(index)
+                ringtonePlayer = RingtoneManager.getRingtone(context, uri).apply {
+                    audioAttributes = AudioAttributes.Builder()
+                        .setUsage(usage)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                    play()
+                }
+            } else {
+                generator.startTone(ToneGenerator.TONE_PROP_ACK, 200)
+            }
+        } catch (e: Exception) {
+            generator.startTone(ToneGenerator.TONE_PROP_ACK, 200)
         }
     }
 
@@ -190,7 +243,11 @@ class NotificationHelper(private val context: Context) {
         try {
             ringtonePlayer?.stop()
             ringtonePlayer = null
-            toneGenerator.stopTone()
+            notificationToneGenerator.stopTone()
+            alarmToneGenerator.stopTone()
+            // ToneGenerator 재생성 (상태 초기화)
+            notificationToneGenerator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80)
+            alarmToneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, 80)
         } catch (e: Exception) {}
     }
 
@@ -204,6 +261,7 @@ class NotificationHelper(private val context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
         } else {
+            @Suppress("DEPRECATION")
             vibrator.vibrate(pattern, -1)
         }
     }
@@ -213,6 +271,7 @@ class NotificationHelper(private val context: Context) {
             val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
             vm.defaultVibrator
         } else {
+            @Suppress("DEPRECATION")
             context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
     }

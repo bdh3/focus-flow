@@ -58,6 +58,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        handleIntent(intent)
+
         setContent {
             val uiState by viewModel.uiState.collectAsState()
             val darkTheme = when (uiState.darkMode) {
@@ -120,6 +122,8 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent) // 새로운 인텐트로 교체
 
+        handleIntent(intent)
+
         val route = intent.getStringExtra("navigate_to")
         if (route != null) {
             // Deep link handling: navigate to MainScreen and then to the specific tab
@@ -146,6 +150,15 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    private fun handleIntent(intent: Intent) {
+        if (intent.getBooleanExtra("stop_alarm", false)) {
+            val serviceIntent = Intent(this, com.focusflow.app.service.TimerService::class.java).apply {
+                putExtra("stop_alarm", true)
+            }
+            startService(serviceIntent)
         }
     }
 }

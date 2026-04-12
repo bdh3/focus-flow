@@ -54,7 +54,10 @@ class TimerService : Service() {
         val finishVibrationPatternId: String = "finish_triple",
         val focusSoundId: String = "focus_default",
         val restSoundId: String = "rest_default",
-        val finishSoundId: String = "finish_triple"
+        val finishSoundId: String = "finish_triple",
+        val focusRingtoneUri: String? = null,
+        val restRingtoneUri: String? = null,
+        val finishRingtoneUri: String? = null
     )
 
     // Configuration
@@ -70,6 +73,9 @@ class TimerService : Service() {
     private var focusSoundId = "focus_default"
     private var restSoundId = "rest_default"
     private var finishSoundId = "finish_triple"
+    private var focusRingtoneUri: String? = null
+    private var restRingtoneUri: String? = null
+    private var finishRingtoneUri: String? = null
     private var onTransition: (String, Int, Boolean, BlockType) -> Unit = { _, _, _, _ -> }
     private var onFinished: () -> Unit = {}
 
@@ -106,7 +112,7 @@ class TimerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.getBooleanExtra("stop_alarm", false) == true) {
-            NotificationHelper(this).stopSound()
+            NotificationHelper.getInstance(this).stopSound()
         }
         return super.onStartCommand(intent, flags, startId)
     }
@@ -127,6 +133,7 @@ class TimerService : Service() {
         vibrate: Boolean, sound: Boolean, focusPatternId: String, 
         restPatternId: String, finishPatternId: String, focusSound: String, 
         restSound: String, finishSound: String, 
+        focusRingtoneUri: String?, restRingtoneUri: String?, finishRingtoneUri: String?,
         onTransition: (String, Int, Boolean, BlockType) -> Unit, onFinished: () -> Unit
     ) {
         this.alarmIntervalMinutes = interval
@@ -141,13 +148,17 @@ class TimerService : Service() {
         this.focusSoundId = focusSound
         this.restSoundId = restSound
         this.finishSoundId = finishSound
+        this.focusRingtoneUri = focusRingtoneUri
+        this.restRingtoneUri = restRingtoneUri
+        this.finishRingtoneUri = finishRingtoneUri
         this.onTransition = onTransition
         this.onFinished = onFinished
         
         _config.value = TimerConfig(
             interval, rest, totalSec, title, vibrate, sound, 
             focusPatternId, restPatternId, finishPatternId, 
-            focusSound, restSound, finishSound
+            focusSound, restSound, finishSound, 
+            focusRingtoneUri, restRingtoneUri, finishRingtoneUri
         )
     }
 
@@ -276,6 +287,8 @@ class TimerService : Service() {
                 putExtra("focusSoundId", focusSoundId)
                 putExtra("restSoundId", restSoundId)
                 putExtra("finishSoundId", finishSoundId)
+                val currentRingtoneUri = if (currentBlockType == BlockType.FOCUS) focusRingtoneUri else restRingtoneUri
+                putExtra("ringtoneUri", currentRingtoneUri)
             }
             val pendingIntent = PendingIntent.getBroadcast(this, elapsedAtNextAlarm.toInt(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             alarmManager.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, nextAlarmTime, pendingIntent)
@@ -296,6 +309,7 @@ class TimerService : Service() {
                 putExtra("focusSoundId", focusSoundId)
                 putExtra("restSoundId", restSoundId)
                 putExtra("finishSoundId", finishSoundId)
+                putExtra("ringtoneUri", finishRingtoneUri)
             }
             val finishPI = PendingIntent.getBroadcast(this, 99999, finishIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             alarmManager.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, currentTime + (initialRemainingSeconds * 1000L), finishPI)

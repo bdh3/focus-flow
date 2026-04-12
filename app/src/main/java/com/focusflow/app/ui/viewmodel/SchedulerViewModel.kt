@@ -61,6 +61,9 @@ data class SchedulerUiState(
     val isCalendarMonthlyView: Boolean = false,
     val darkMode: Int = 0,
     val fontSizeScale: Float = 1.0f,
+    val focusRingtoneUri: String? = null,
+    val restRingtoneUri: String? = null,
+    val finishRingtoneUri: String? = null,
     val storedAlarmIntervalMinutes: Int = 15,
     val storedRestMinutes: Int = 0
 )
@@ -77,7 +80,7 @@ class SchedulerViewModel(
     private val _selectedDate = MutableStateFlow(System.currentTimeMillis())
     val selectedDate: StateFlow<Long> = _selectedDate.asStateFlow()
 
-    private val notificationHelper = NotificationHelper(app)
+    private val notificationHelper = NotificationHelper.getInstance(app)
     
     private var timerService: TimerService? = null
     private var isBound = false
@@ -219,6 +222,21 @@ class SchedulerViewModel(
             }
         }
         viewModelScope.launch {
+            settingsRepository.focusRingtoneUri.collect { uri ->
+                _uiState.update { it.copy(focusRingtoneUri = uri) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.restRingtoneUri.collect { uri ->
+                _uiState.update { it.copy(restRingtoneUri = uri) }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.finishRingtoneUri.collect { uri ->
+                _uiState.update { it.copy(finishRingtoneUri = uri) }
+            }
+        }
+        viewModelScope.launch {
             settingsRepository.defaultTotalMinutes.collect { mins ->
                 _uiState.update { it.copy(defaultTotalMinutes = mins) }
             }
@@ -245,6 +263,9 @@ class SchedulerViewModel(
         settingsRepository.focusSoundId,
         settingsRepository.restSoundId,
         settingsRepository.finishSoundId,
+        settingsRepository.focusRingtoneUri,
+        settingsRepository.restRingtoneUri,
+        settingsRepository.finishRingtoneUri,
         settingsRepository.defaultTotalMinutes,
         settingsRepository.darkMode,
         settingsRepository.fontSizeScale,
@@ -268,17 +289,20 @@ class SchedulerViewModel(
         val focusSndId = params[7] as String
         val restSndId = params[8] as String
         val finishSndId = params[9] as String
-        val defTotalMins = params[10] as Int
-        val darkMode = params[11] as Int
-        val fontSizeScale = params[12] as Float
+        val focusRingUri = params[10] as String?
+        val restRingUri = params[11] as String?
+        val finishRingUri = params[12] as String?
+        val defTotalMins = params[13] as Int
+        val darkMode = params[14] as Int
+        val fontSizeScale = params[15] as Float
         @Suppress("UNCHECKED_CAST")
-        val dailySchedules = params[13] as List<ScheduleBlock>
+        val dailySchedules = params[16] as List<ScheduleBlock>
         @Suppress("UNCHECKED_CAST")
-        val allSchedules = params[14] as List<ScheduleBlock>
+        val allSchedules = params[17] as List<ScheduleBlock>
         @Suppress("UNCHECKED_CAST")
-        val recentStats = params[15] as List<DailyStats>
+        val recentStats = params[18] as List<DailyStats>
         @Suppress("UNCHECKED_CAST")
-        val todayTasks = params[16] as List<Task>
+        val todayTasks = params[19] as List<Task>
 
         val isSessionActive = state.isRunning || (state.totalRemainingSeconds > 0)
         val isTimerActive = state.isTimerActive
@@ -338,6 +362,9 @@ class SchedulerViewModel(
             focusSoundId = focusSndId,
             restSoundId = restSndId,
             finishSoundId = finishSndId,
+            focusRingtoneUri = focusRingUri,
+            restRingtoneUri = restRingUri,
+            finishRingtoneUri = finishRingUri,
             defaultTotalMinutes = defTotalMins,
             dailySchedules = dailySchedules,
             allSchedules = allSchedules,
@@ -680,6 +707,9 @@ class SchedulerViewModel(
                 focusSound = state.focusSoundId,
                 restSound = state.restSoundId,
                 finishSound = state.finishSoundId,
+                focusRingtoneUri = state.focusRingtoneUri,
+                restRingtoneUri = state.restRingtoneUri,
+                finishRingtoneUri = state.finishRingtoneUri,
                 onTransition = { t, e, f, bt -> onBlockTransition(t, e, f, bt) },
                 onFinished = { onSessionFinished() }
             )
@@ -717,6 +747,9 @@ class SchedulerViewModel(
                 focusSound = state.focusSoundId,
                 restSound = state.restSoundId,
                 finishSound = state.finishSoundId,
+                focusRingtoneUri = state.focusRingtoneUri,
+                restRingtoneUri = state.restRingtoneUri,
+                finishRingtoneUri = state.finishRingtoneUri,
                 onTransition = { t, e, f, bt -> onBlockTransition(t, e, f, bt) },
                 onFinished = { onSessionFinished() }
             )
@@ -737,6 +770,9 @@ class SchedulerViewModel(
                 focusSound = state.focusSoundId,
                 restSound = state.restSoundId,
                 finishSound = state.finishSoundId,
+                focusRingtoneUri = state.focusRingtoneUri,
+                restRingtoneUri = state.restRingtoneUri,
+                finishRingtoneUri = state.finishRingtoneUri,
                 onTransition = { t, e, f, bt -> onBlockTransition(t, e, f, bt) },
                 onFinished = { onSessionFinished() }
             )
@@ -759,6 +795,12 @@ class SchedulerViewModel(
         val restPattern = VibrationPattern.fromId(state.restVibrationPatternId).pattern
         val finishPattern = VibrationPattern.fromId(state.finishVibrationPatternId).pattern
 
+        val ringtoneUri = when {
+            isFinished -> state.finishRingtoneUri
+            blockType == BlockType.FOCUS -> state.focusRingtoneUri
+            else -> state.restRingtoneUri
+        }
+
         notificationHelper.showBlockTransitionNotification(
             taskTitle = taskTitle, 
             elapsedMinutes = elapsedMinutes, 
@@ -771,7 +813,8 @@ class SchedulerViewModel(
             restSoundId = state.restSoundId,
             finishSoundId = state.finishSoundId,
             vibrationEnabled = state.vibrationEnabled,
-            soundEnabled = state.soundEnabled
+            soundEnabled = state.soundEnabled,
+            ringtoneUri = ringtoneUri
         )
     }
 
@@ -824,7 +867,10 @@ class SchedulerViewModel(
         restSoundId: String,
         finishSoundId: String,
         defaultTotalMinutes: Int,
-        darkMode: Int
+        darkMode: Int,
+        focusRingtoneUri: String? = null,
+        restRingtoneUri: String? = null,
+        finishRingtoneUri: String? = null
     ) {
         viewModelScope.launch {
             settingsRepository.setAlarmIntervalMinutes(interval)
@@ -840,6 +886,9 @@ class SchedulerViewModel(
             settingsRepository.setFinishSoundId(finishSoundId)
             settingsRepository.setDefaultTotalMinutes(defaultTotalMinutes)
             settingsRepository.setDarkMode(darkMode)
+            settingsRepository.setFocusRingtoneUri(focusRingtoneUri)
+            settingsRepository.setRestRingtoneUri(restRingtoneUri)
+            settingsRepository.setFinishRingtoneUri(finishRingtoneUri)
 
             _uiState.update { it.copy(
                 alarmIntervalMinutes = if (!it.isTimerActive) interval else it.alarmIntervalMinutes,
@@ -855,6 +904,9 @@ class SchedulerViewModel(
                 finishSoundId = finishSoundId,
                 defaultTotalMinutes = defaultTotalMinutes,
                 darkMode = darkMode,
+                focusRingtoneUri = focusRingtoneUri,
+                restRingtoneUri = restRingtoneUri,
+                finishRingtoneUri = finishRingtoneUri,
                 storedAlarmIntervalMinutes = interval,
                 storedRestMinutes = rest
             ) }
@@ -928,8 +980,35 @@ class SchedulerViewModel(
         notificationHelper.vibratePreview(patternId)
     }
 
-    fun previewSound(soundId: String) {
-        notificationHelper.playSound(soundId)
+    fun previewSound(soundId: String, type: String = "focus") {
+        val uri = when (type) {
+            "focus" -> _uiState.value.focusRingtoneUri
+            "rest" -> _uiState.value.restRingtoneUri
+            "finish" -> _uiState.value.finishRingtoneUri
+            else -> null
+        }
+        notificationHelper.playSound(soundId, uri, isLooping = false)
+    }
+
+    fun setFocusRingtoneUri(uri: String?) {
+        viewModelScope.launch {
+            settingsRepository.setFocusRingtoneUri(uri)
+            _uiState.update { it.copy(focusRingtoneUri = uri) }
+        }
+    }
+
+    fun setRestRingtoneUri(uri: String?) {
+        viewModelScope.launch {
+            settingsRepository.setRestRingtoneUri(uri)
+            _uiState.update { it.copy(restRingtoneUri = uri) }
+        }
+    }
+
+    fun setFinishRingtoneUri(uri: String?) {
+        viewModelScope.launch {
+            settingsRepository.setFinishRingtoneUri(uri)
+            _uiState.update { it.copy(finishRingtoneUri = uri) }
+        }
     }
 
     fun stopSoundPreview() {
