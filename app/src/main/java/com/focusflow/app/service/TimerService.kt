@@ -243,6 +243,12 @@ class TimerService : Service() {
             
             updateForegroundNotification(if(transitioningTo == BlockType.REST) "$displayTitle: 휴식 중" else "$displayTitle: 몰입 중")
             onTransition?.invoke(statusTitle, (sessionElapsedSeconds / 60), false, transitioningTo, isManualSkip)
+
+            // [v1.7.6-fix] 구간 전환 알람이 울린 직후, 다음 구간 알람을 예약합니다.
+            // (Single Step Scheduling)
+            if (currentTotalRemaining > 0) {
+                scheduleAllAlarms(currentTotalRemaining)
+            }
         }
         _remainingSeconds.value = currentBlockRemaining
     }
@@ -268,90 +274,89 @@ class TimerService : Service() {
     }
 
     private fun scheduleAllAlarms(initialRemainingSeconds: Int) {
+        // 기존 알람 모두 제거
         stopAllAlarms(false)
+        
+        val currentTimeMillis = System.currentTimeMillis()
+        val elapsedAtStart = (totalSecondsAtStart - initialRemainingSeconds).toLong()
+        
+        // [v1.7.6-fix] 모든 알람을 미리 예약하지 않고, '다음 가장 가까운 알람' 하나만 예약합니다.
+        // 이는 Z플립 등에서 알람이 중복 울리거나 지연되는 현상을 방지합니다.
+        
         val focusSeconds = alarmIntervalMinutes * 60
         val restSeconds = restMinutes * 60
         val cycleSeconds = focusSeconds + restSeconds
-        val currentTimeMillis = System.currentTimeMillis()
-        var elapsedAtNextAlarm = (totalSecondsAtStart - initialRemainingSeconds).toLong()
         
-        while (true) {
-            val offsetInCycle = (elapsedAtNextAlarm % cycleSeconds).toInt()
-            val secondsUntilNextBoundary = if (restSeconds <= 0) focusSeconds - (offsetInCycle % focusSeconds)
-            else if (offsetInCycle < focusSeconds) focusSeconds - offsetInCycle
-            else cycleSeconds - offsetInCycle
-            
-            elapsedAtNextAlarm += secondsUntilNextBoundary
-            if (elapsedAtNextAlarm >= totalSecondsAtStart) break
-            
-            val nextAlarmTime = currentTimeMillis + ((elapsedAtNextAlarm - (totalSecondsAtStart - initialRemainingSeconds)) * 1000L)
-            val transitioningTo = if (restSeconds <= 0) BlockType.FOCUS
-                                  else if ((elapsedAtNextAlarm % cycleSeconds).toInt() >= focusSeconds) BlockType.REST
-                                  else BlockType.FOCUS
-            
-            val currentSoundId = if (transitioningTo == BlockType.REST) restSoundId else focusSoundId
-            val isFullScreenModeForBlock = (currentSoundId == "ringtone") || useFullScreenAlarm
-            
-            val alarmTitle = if (taskTitle.isEmpty()) "독립 세션" else taskTitle
-            val statusTitle = when {
-                transitioningTo == BlockType.REST -> "$alarmTitle: 휴식 시작"
-                else -> "$alarmTitle: 몰입 시작"
-            }
+        var nextElapsed = elapsedAtStart
+        val offsetInCycle = (elapsedAtStart % cycleSeconds).toInt()
+        
+        val secondsUntilNextBoundary = if (restSeconds <= 0) {
+            focusSeconds - (offsetInCycle % focusSeconds)
+        } else if (offsetInCycle < focusSeconds) {
+            focusSeconds - offsetInCycle
+        } else {
+            cycleSeconds - offsetInCycle
+        }
+        
+        nextElapsed += secondsUntilNextBoundary
+        
+        // 최종 종료인지 구간 전환인지 확인
+        val isFinalFinish = nextElapsed >= totalSecondsAtStart
+        val actualNextElapsed = if (isFinalFinish) totalSecondsAtStart.toLong() else nextElapsed
+        val timeUntilNext = (actualNextElapsed - elapsedAtStart)
+        
+        val nextAlarmTime = currentTimeMillis + (timeUntilNext * 1000L)
+        
+        val transitioningTo = if (isFinalFinish) BlockType.FOCUS 
+                             else if (restSeconds <= 0) BlockType.FOCUS
+                             else if ((actualNextElapsed % cycleSeconds).toInt() >= focusSeconds) BlockType.REST
+                             else BlockType.FOCUS
 
-            val intent = Intent(this, TimerAlarmReceiver::class.java).apply {
-                addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-                action = "com.focusflow.app.ALARM_RECV_${elapsedAtNextAlarm}_${System.currentTimeMillis()}"
-                putExtra("taskTitle", statusTitle)
-                putExtra("elapsedMinutes", (elapsedAtNextAlarm / 60).toInt())
-                putExtra("isFinished", false)
-                putExtra("vibrationEnabled", vibrationEnabled)
-                putExtra("soundEnabled", soundEnabled)
-                putExtra("useFullScreen", isFullScreenModeForBlock) 
-                putExtra("blockType", transitioningTo.name)
-                putExtra("focusVibrationPatternId", focusVibrationPatternId)
-                putExtra("restVibrationPatternId", restVibrationPatternId)
-                putExtra("finishVibrationPatternId", finishVibrationPatternId)
-                putExtra("focusSoundId", focusSoundId)
-                putExtra("restSoundId", restSoundId)
-                putExtra("finishSoundId", finishSoundId)
-                putExtra("ringtoneUri", if (transitioningTo == BlockType.REST) restRingtoneUri else focusRingtoneUri)
-            }
-            val pi = PendingIntent.getBroadcast(this, elapsedAtNextAlarm.toInt(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            
-            val alarmInfo = AlarmManager.AlarmClockInfo(nextAlarmTime, pi)
-            alarmManager.setAlarmClock(alarmInfo, pi)
-            pendingAlarms.add(pi)
+        val currentSoundId = when {
+            isFinalFinish -> finishSoundId
+            transitioningTo == BlockType.REST -> restSoundId
+            else -> focusSoundId
+        }
+        val isFullScreenMode = (currentSoundId == "ringtone") || useFullScreenAlarm
+        
+        val displayTitle = taskTitle.ifEmpty { "독립 세션" }
+        val statusTitle = when {
+            isFinalFinish -> "$displayTitle: 종료"
+            transitioningTo == BlockType.REST -> "$displayTitle: 휴식 시작"
+            else -> "$displayTitle: 몰입 시작"
         }
 
-        if (initialRemainingSeconds > 0) {
-            val isDefault = taskTitle.isEmpty()
-            val displayTitle = if (isDefault) "독립 세션" else taskTitle
-            val isFullScreenForFinish = (finishSoundId == "ringtone") || useFullScreenAlarm
-            
-            val finishIntent = Intent(this, TimerAlarmReceiver::class.java).apply {
-                addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-                putExtra("taskTitle", "$displayTitle: 종료")
-                putExtra("elapsedMinutes", totalSecondsAtStart / 60)
-                putExtra("isFinished", true)
-                putExtra("vibrationEnabled", vibrationEnabled)
-                putExtra("soundEnabled", soundEnabled)
-                putExtra("useFullScreen", isFullScreenForFinish)
-                putExtra("blockType", BlockType.FOCUS.name)
-                putExtra("focusVibrationPatternId", focusVibrationPatternId)
-                putExtra("restVibrationPatternId", restVibrationPatternId)
-                putExtra("finishVibrationPatternId", finishVibrationPatternId)
-                putExtra("focusSoundId", focusSoundId)
-                putExtra("restSoundId", restSoundId)
-                putExtra("finishSoundId", finishSoundId)
-                putExtra("ringtoneUri", finishRingtoneUri)
-            }
-            val finishPI = PendingIntent.getBroadcast(this, FINISH_ALARM_ID, finishIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            
-            val finishTime = currentTimeMillis + (initialRemainingSeconds * 1000L)
-            val alarmInfo = AlarmManager.AlarmClockInfo(finishTime, finishPI)
-            alarmManager.setAlarmClock(alarmInfo, finishPI)
-            pendingAlarms.add(finishPI)
+        val intent = Intent(this, TimerAlarmReceiver::class.java).apply {
+            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
+            // 액션을 고정하여 중복 예약을 방지
+            action = "com.focusflow.app.ALARM_ACTION"
+            putExtra("taskTitle", statusTitle)
+            putExtra("elapsedMinutes", (actualNextElapsed / 60).toInt())
+            putExtra("isFinished", isFinalFinish)
+            putExtra("vibrationEnabled", vibrationEnabled)
+            putExtra("soundEnabled", soundEnabled)
+            putExtra("useFullScreen", isFullScreenMode) 
+            putExtra("blockType", transitioningTo.name)
+            putExtra("focusVibrationPatternId", focusVibrationPatternId)
+            putExtra("restVibrationPatternId", restVibrationPatternId)
+            putExtra("finishVibrationPatternId", finishVibrationPatternId)
+            putExtra("focusSoundId", focusSoundId)
+            putExtra("restSoundId", restSoundId)
+            putExtra("finishSoundId", finishSoundId)
+            putExtra("ringtoneUri", when {
+                isFinalFinish -> finishRingtoneUri
+                transitioningTo == BlockType.REST -> restRingtoneUri
+                else -> focusRingtoneUri
+            })
         }
+
+        // 고정된 ID(FINISH_ALARM_ID)를 사용하여 기존 예약을 덮어씀
+        val pi = PendingIntent.getBroadcast(this, FINISH_ALARM_ID, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        
+        // Z플립5 커버 스크린 가시성을 위해 AlarmClock 사용은 유지하되, 하나만 예약
+        val alarmInfo = AlarmManager.AlarmClockInfo(nextAlarmTime, pi)
+        alarmManager.setAlarmClock(alarmInfo, pi)
+        pendingAlarms.add(pi)
     }
 
     fun pauseTimer() {
