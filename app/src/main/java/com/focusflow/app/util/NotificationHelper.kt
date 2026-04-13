@@ -182,6 +182,15 @@ class NotificationHelper private constructor(private val context: Context) {
             .setLocalOnly(true)
             .setWhen(System.currentTimeMillis()) 
             .setShowWhen(true)
+            // [v1.7.6-patch] 최신 안드로이드(Z플립5 등) 대응: 긴급도 최대 설정 및 알람 카테고리 명시
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            // [v1.7.6-patch] 최신 안드로이드(Z플립5 등) 대응: 긴급도 최대 설정 및 알람 카테고리 명시
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            // [v1.7.6-patch] 최신 안드로이드(Z플립5 등) 대응: 긴급도 최대 설정 및 알람 카테고리 명시
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
 
         if (forceFullScreen) {
             builder.setPriority(NotificationCompat.PRIORITY_MAX)
