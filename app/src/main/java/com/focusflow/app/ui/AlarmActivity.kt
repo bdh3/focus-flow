@@ -83,12 +83,11 @@ class AlarmActivity : ComponentActivity() {
     }
 
     private fun applyWindowFlags() {
-        // [v1.7.6-fix] Z플립5 커버 스크린의 강력한 잠금 레이어를 뚫기 위한 설정
+        // [v1.7.6-final] 패턴 해제를 요청하지 않고, 잠금 화면 위에 화면만 띄움
+        // requestDismissKeyguard를 호출하면 오히려 패턴 입력창이 소환되므로 제거함
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
-            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-            keyguardManager.requestDismissKeyguard(this, null)
         }
 
         @Suppress("DEPRECATION")
@@ -97,13 +96,11 @@ class AlarmActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON or
             WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
             WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-            WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
-            WindowManager.LayoutParams.FLAG_FULLSCREEN or // 커버 스크린 전면 점유를 위해 필수
+            WindowManager.LayoutParams.FLAG_FULLSCREEN or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
         )
         
-        // 삼성 기기 특화: 잠금 화면 위로 액티비티를 강제로 올림
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             setInheritShowWhenLocked(true)
         }
