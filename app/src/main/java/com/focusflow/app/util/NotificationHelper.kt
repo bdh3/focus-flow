@@ -37,6 +37,7 @@ class NotificationHelper private constructor(private val context: Context) {
     private var isLoopingActive = false
     private var vibrationJob: Job? = null
     private var timeoutJob: Job? = null
+    private var alertJob: Job? = null // [v1.7.6-patch] 소리/진동 실행 대기열 관리용
 
     fun isAlarmRunning(): Boolean = isLoopingActive
 
@@ -196,7 +197,7 @@ class NotificationHelper private constructor(private val context: Context) {
             builder.setPriority(NotificationCompat.PRIORITY_MAX)
             startTimeoutCounter()
             
-            // [핵심] PowerManager를 사용하여 화면을 직접 강제로 깨웁니다 (삼성 기기 특효)
+            // [v1.7.6-patch] Z플립5 등 삼성 기기 대응: PowerManager를 사용하여 화면을 강제로 깨웁니다.
             try {
                 val pm = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
                 val wakeLock = pm.newWakeLock(
@@ -205,10 +206,14 @@ class NotificationHelper private constructor(private val context: Context) {
                     android.os.PowerManager.ON_AFTER_RELEASE,
                     "FocusFlow:AlarmWakeLock"
                 )
-                wakeLock.acquire(10000L) // 10초간 화면 켜짐 유지
+                // 화면을 15초간 강제로 켭니다.
+                wakeLock.acquire(15000L) 
 
+                // [핵심] PendingIntent에만 의존하지 않고 액티비티를 직접 즉시 실행
                 context.startActivity(alarmActivityIntent)
-            } catch (e: Exception) { e.printStackTrace() }
+            } catch (e: Exception) { 
+                e.printStackTrace() 
+            }
         } else {
             builder.setDefaults(0)
             builder.setSound(null)
@@ -217,9 +222,13 @@ class NotificationHelper private constructor(private val context: Context) {
 
         notificationManager.notify(ALARM_NOTIFICATION_ID, builder.build())
         
-        serviceScope.launch {
+        alertJob?.cancel() // 기존에 대기 중인 작업이 있다면 취소
+        alertJob = serviceScope.launch {
             delay(500)
             
+            // [v1.7.6-patch] 작업을 시작하기 전에 세션이 이미 중단되었는지 재확인
+            if (!isLoopingActive && forceFullScreen) return@launch
+
             if (vibrationEnabled) {
                 val pattern = when {
                     isFinished -> finishVibrationPattern

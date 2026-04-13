@@ -61,10 +61,13 @@
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"
             android:showForAllUsers="true"
+            android:directBootAware="true"
+            android:canDisplayOnRemoteDevices="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
             android:theme="@style/Theme.FocusFlow">
             <meta-data android:name="com.samsung.android.multidisplay.keep_process_alive" android:value="true" />
             <meta-data android:name="android.allow_multiple_resumed_activities" android:value="true" />
+            <meta-data android:name="com.samsung.android.knox.lockscreen.reshow" android:value="true" />
         </activity>
     </application>
 

@@ -197,6 +197,11 @@ class MainActivity : ComponentActivity() {
         // [정책 5] 앱으로 진입하면 현재 울리는 벨소리/알람을 즉시 중단
         val helper = com.focusflow.app.util.NotificationHelper.getInstance(this)
         helper.stopAllAlerts()
+        
+        // [v1.7.6-patch] 앱 재진입 시 타이머가 돌고 있지 않다면 선택된 작업 초기화 ("작업을 선택하세요" 상태로 유도)
+        if (!viewModel.uiState.value.isTimerActive) {
+            viewModel.selectTask(null)
+        }
     }
 
     override fun onDestroy() {

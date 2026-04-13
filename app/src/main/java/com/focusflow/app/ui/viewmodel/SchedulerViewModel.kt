@@ -530,7 +530,7 @@ class SchedulerViewModel(
 
     fun loadScheduledSession(schedule: ScheduleBlock) {
         _uiState.update { it.copy(
-            selectedTaskId = null,
+            selectedTaskId = schedule.id, // [v1.7.6-patch] 스케줄 ID를 taskId로 활용하여 추적성 확보
             selectedTaskTitle = schedule.taskTitle,
             currentScheduleId = schedule.id,
             sessionTotalMinutes = schedule.durationMinutes,
@@ -636,7 +636,15 @@ class SchedulerViewModel(
             // 만약 현재 활성화된 세션이 없다면 선택된 제목이나 작업으로 시작
             if (!state.isTimerActive) {
                 val selectedTask = state.tasks.find { it.id == state.selectedTaskId }
-                val finalTitle = state.selectedTaskTitle ?: selectedTask?.title ?: "독립 세션"
+                
+                // [v1.7.6-patch] 안내 문구("작업을 선택하세요")인 경우 "독립 세션"으로 치환하여 시작
+                val currentTitle = state.selectedTaskTitle
+                val finalTitle = if (currentTitle == "작업을 선택하세요" || currentTitle == null) {
+                    selectedTask?.title ?: "독립 세션"
+                } else {
+                    currentTitle
+                }
+                
                 startSession(state.selectedTaskId, finalTitle, state.currentScheduleId)
             } else {
                 service.startTimer(state.totalRemainingSeconds)

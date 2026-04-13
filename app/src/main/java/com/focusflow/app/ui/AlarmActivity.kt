@@ -30,8 +30,14 @@ import com.focusflow.app.util.NotificationHelper
 
 class AlarmActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        // [v1.7.3] 윈도우 플래그 통합 설정 함수 호출 (DeskClock 방식 최적화)
+        // [v1.7.6-patch] 최상단에서 윈도우 플래그 설정 (Z플립5 전면 스크린 및 잠금 화면 대응)
+        // super.onCreate 이전에 호출해야 잠금 화면 위로 확실히 뜹니다.
         applyWindowFlags()
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        }
         
         super.onCreate(savedInstanceState)
         
@@ -39,38 +45,6 @@ class AlarmActivity : ComponentActivity() {
         val taskTitle = intent.getStringExtra("taskTitle") ?: "독립 세션"
         val message = intent.getStringExtra("message") ?: "구간이 전환되었습니다."
         val isFinished = intent.getBooleanExtra("isFinished", false)
-
-        // [v1.7.6-patch] 최신 안드로이드(Z플립5 등)에서 잠긴 화면 깨우기 강화
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(true)
-            setTurnScreenOn(true)
-            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-            keyguardManager.requestDismissKeyguard(this, null)
-        } else {
-            @Suppress("DEPRECATION")
-            window.addFlags(
-                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-            )
-        }
-
-        // [v1.7.6-patch] 최신 안드로이드(Z플립5 등)에서 잠긴 화면 깨우기 강화
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(true)
-            setTurnScreenOn(true)
-            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-            keyguardManager.requestDismissKeyguard(this, null)
-        } else {
-            @Suppress("DEPRECATION")
-            window.addFlags(
-                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-            )
-        }
 
         setContent {
             AlarmScreen(
@@ -105,6 +79,7 @@ class AlarmActivity : ComponentActivity() {
     }
 
     private fun applyWindowFlags() {
+        // [v1.7.6-patch] Android 8.0(O_MR1) 이상 대응 강화
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
@@ -112,12 +87,16 @@ class AlarmActivity : ComponentActivity() {
             keyguardManager.requestDismissKeyguard(this, null)
         }
 
+        // 구 버전 및 공통 플래그 설정
+        @Suppress("DEPRECATION")
         window.addFlags(
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
             WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON or
             WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
             WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-            WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+            WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
         )
     }
 

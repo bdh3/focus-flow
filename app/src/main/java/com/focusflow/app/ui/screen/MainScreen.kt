@@ -80,23 +80,28 @@ fun MainScreen(
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = Screen.Timer.route, // Changed to Timer as per user request
+            startDestination = Screen.Timer.route,
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.Calendar.route) { 
                 CalendarScreen(viewModel, onNavigateToTimer = {
                     navController.navigate(Screen.Timer.route) {
-                        popUpTo(Screen.Calendar.route) { inclusive = false }
+                        popUpTo(navController.graph.findStartDestination().id) {
+                            saveState = true
+                        }
                         launchSingleTop = true
+                        restoreState = true
                     }
                 }) 
             }
             composable(Screen.Timer.route) { 
                 SchedulerScreen(viewModel, onNavigateToCalendar = {
                     navController.navigate(Screen.Calendar.route) {
-                        // 캘린더로 돌아갈 때 모든 백스택을 비워 레이어 중첩 방지
-                        popUpTo(0) { inclusive = true }
+                        popUpTo(navController.graph.findStartDestination().id) {
+                            saveState = true
+                        }
                         launchSingleTop = true
+                        restoreState = true
                     }
                 }) 
             }

@@ -12,8 +12,8 @@ android {
         applicationId = "com.focusflow.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 44
-        versionName = "1.7.5"
+        versionCode = 45
+        versionName = "1.7.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

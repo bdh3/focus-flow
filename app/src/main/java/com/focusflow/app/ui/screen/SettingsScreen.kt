@@ -586,7 +586,7 @@ fun SettingsScreen(viewModel: SchedulerViewModel) {
                 text = if (useFullScreenAlarm) 
                     "• 화면 전체를 점유하며 상세 메시지를 함께 표시합니다.\n• 벨소리, 알림음, 진동 모두 지원합니다." 
                     else 
-                    "• 화면 상단에 간결하게 표시됩니다. (알림 내용 생략)\n• 벨소리 설정 시에도 수동 중지를 위해 전체 화면으로 전환됩니다.",
+                    "• 화면 상단에 간결하게 표시됩니다.\n• 벨소리 설정 시에는 수동 중지를 위해 전체 화면으로 전환됩니다.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
