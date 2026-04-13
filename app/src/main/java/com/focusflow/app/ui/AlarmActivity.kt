@@ -30,20 +30,19 @@ import com.focusflow.app.util.NotificationHelper
 
 class AlarmActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        // [v1.7.6-fix] 최상단에서 윈도우 플래그 설정 (Z플립5 전면 스크린 및 잠금 화면 대응)
-        // super.onCreate 이전에 호출해야 잠금 화면 위로 확실히 뜹니다.
-        applyWindowFlags()
-        
+        // [v1.7.6-fix] Z플립5 커버 스크린 하드웨어를 즉각적으로 깨우기 위한 설정
+        // super.onCreate 이전에 호출하여 시스템 레이어에 즉시 반영
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
         }
         
-        // Android 10(Q) 이상을 위한 추가적인 화면 켬 보장
+        // Android 10(Q) 이상에서 잠금 화면 위 표시 및 커버 스크린 가시성 보장
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             setInheritShowWhenLocked(true)
         }
-        
+
+        applyWindowFlags()
         super.onCreate(savedInstanceState)
         
         val notificationHelper = NotificationHelper.getInstance(this)

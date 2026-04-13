@@ -154,10 +154,13 @@ class NotificationHelper private constructor(private val context: Context) {
 
         val alarmActivityIntent = Intent(context, AlarmActivity::class.java).apply {
             action = "com.focusflow.app.ALARM_ACTION_${System.currentTimeMillis()}" 
+            // [v1.7.6-fix] Z플립5 커버 스크린 돌파를 위한 플래그 보강
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or 
                     Intent.FLAG_ACTIVITY_NO_USER_ACTION or 
                     Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
+                    Intent.FLAG_ACTIVITY_NEW_DOCUMENT
             putExtra("taskTitle", displayTitle)
             putExtra("message", message)
             putExtra("isFinished", isFinished)

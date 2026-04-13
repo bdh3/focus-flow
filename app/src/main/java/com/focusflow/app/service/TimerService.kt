@@ -350,8 +350,14 @@ class TimerService : Service() {
             })
         }
 
-        // 고정된 ID(FINISH_ALARM_ID)를 사용하여 기존 예약을 덮어씀
-        val pi = PendingIntent.getBroadcast(this, FINISH_ALARM_ID, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        // [v1.7.6-fix] PendingIntent 플래그 최적화 (FLAG_MUTABLE이 필요한 경우가 있음)
+        // 시스템이 이 알람을 '새로운 알람'으로 확실히 인지하게 함
+        val pi = PendingIntent.getBroadcast(
+            this, 
+              FINISH_ALARM_ID, 
+            intent, 
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE // [v1.7.6-fix] 일부 기기에서 알람 갱신을 위해 MUTABLE 허용
+        )
         
         // Z플립5 커버 스크린 가시성을 위해 AlarmClock 사용은 유지하되, 하나만 예약
         val alarmInfo = AlarmManager.AlarmClockInfo(nextAlarmTime, pi)
