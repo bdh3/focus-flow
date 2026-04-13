@@ -83,7 +83,7 @@ class AlarmActivity : ComponentActivity() {
     }
 
     private fun applyWindowFlags() {
-        // [v1.7.6-patch] Android 8.0(O_MR1) 이상 대응 강화
+        // [v1.7.6-fix] Z플립5 커버 스크린의 강력한 잠금 레이어를 뚫기 위한 설정
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
@@ -91,7 +91,6 @@ class AlarmActivity : ComponentActivity() {
             keyguardManager.requestDismissKeyguard(this, null)
         }
 
-        // 구 버전 및 공통 플래그 설정
         @Suppress("DEPRECATION")
         window.addFlags(
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
@@ -99,9 +98,15 @@ class AlarmActivity : ComponentActivity() {
             WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
             WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
             WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+            WindowManager.LayoutParams.FLAG_FULLSCREEN or // 커버 스크린 전면 점유를 위해 필수
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
         )
+        
+        // 삼성 기기 특화: 잠금 화면 위로 액티비티를 강제로 올림
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            setInheritShowWhenLocked(true)
+        }
     }
 
     override fun onDestroy() {

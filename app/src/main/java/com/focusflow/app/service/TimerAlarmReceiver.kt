@@ -9,6 +9,12 @@ import com.focusflow.app.util.VibrationPattern
 
 class TimerAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        // [v1.7.6-fix] 구버전에서 예약된 '좀비 알람' 차단
+        // 현재는 고정된 액션 "com.focusflow.app.ALARM_ACTION"만 사용합니다.
+        val action = intent.action
+        if (action != null && action.startsWith("com.focusflow.app.ALARM_RECV_")) {
+            return // 옛날 방식의 알람은 무시
+        }
         // [v1.7.3] 서비스가 종료된 상태라면 예약된 알람을 무시 (중지 후 잔여 알람 방지)
         if (!TimerService.isServiceRunning) return
 
