@@ -42,8 +42,8 @@ class NotificationHelper private constructor(private val context: Context) {
     fun isAlarmRunning(): Boolean = isLoopingActive
 
     companion object {
-        // [v1.7.3] 최종 채널 ID 고정 (안정화 완료)
-        const val ALARM_HIGH_CHANNEL_ID = "focus_flow_alarm_v13"
+        // [v1.7.6-final] 채널 중요도 재설정을 위해 ID 변경
+        const val ALARM_HIGH_CHANNEL_ID = "focus_flow_alarm_v14_final"
         const val SILENT_SERVICE_CHANNEL_ID = "focus_flow_service_v13"
         const val SERVICE_NOTIFICATION_ID = 1000
         const val ALARM_NOTIFICATION_ID = 2000 
@@ -74,9 +74,10 @@ class NotificationHelper private constructor(private val context: Context) {
                 description = "구간 전환 및 종료 시 알람을 표시합니다."
                 enableLights(true)
                 lightColor = android.graphics.Color.RED
-                // 중복 소리 방지를 위해 시스템 소리는 다시 null로 설정
+                // [v1.7.6-patch] 채널 레벨에서 진동을 활성화해야 FSI 확률이 높아짐
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 500, 200, 500)
                 setSound(null, null)
-                enableVibration(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 setBypassDnd(true)
                 setShowBadge(true)
@@ -213,8 +214,11 @@ class NotificationHelper private constructor(private val context: Context) {
                         android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,
                         "FocusFlow:AlarmWakeLock"
                     )
-                    // 화면을 깨워 fullScreenIntent가 즉시 활성화되도록 유도 (3초면 충분)
                     wakeLock.acquire(3000L) 
+
+                    // [v1.7.6-final] FSI가 실패할 경우를 대비해 직접 실행 병행
+                    // AlarmActivity에서 requestDismissKeyguard()를 호출하지 않으므로 패턴 창 없이 뜹니다.
+                    context.startActivity(alarmActivityIntent)
                 } catch (e: Exception) { 
                     e.printStackTrace() 
                 }
