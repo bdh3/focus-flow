@@ -4,7 +4,7 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- 부드러운 몰입의 흐름(Flow)을 상징하는 물결 모양 원형 배경 -->
+    <!-- 부드러운 집중의 흐름(Flow)을 상징하는 물결 모양 원형 배경 -->
     <path
         android:fillColor="#FFFFFF"
         android:pathData="M54,54m-42,0a42,42 0,1 1,84 0a42,42 0,1 1,-84 0"
@@ -23,7 +23,7 @@
         android:fillColor="#FFFFFF"
         android:pathData="M46,46h16v16h-16z"/>
 
-    <!-- 몰입이 퍼져나가는 듯한 포인트 점들 -->
+    <!-- 집중이 퍼져나가는 듯한 포인트 점들 -->
     <path
         android:fillColor="#FFFFFF"
         android:pathData="M54,22a3,3 0,1 1,0 6a3,3 0,1 1,0 -6"/>

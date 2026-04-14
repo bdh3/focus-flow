@@ -198,7 +198,7 @@ class MainActivity : ComponentActivity() {
         val helper = com.focusflow.app.util.NotificationHelper.getInstance(this)
         helper.stopAllAlerts()
         
-        // [v1.7.6-patch] 앱 재진입 시 타이머가 돌고 있지 않다면 선택된 작업 초기화 ("작업을 선택하세요" 상태로 유도)
+        // [v1.8.0] 앱 재진입 시 타이머가 돌고 있지 않다면 선택된 작업 초기화 ("작업을 선택하세요" 상태로 유도)
         if (!viewModel.uiState.value.isTimerActive) {
             viewModel.selectTask(null)
         }

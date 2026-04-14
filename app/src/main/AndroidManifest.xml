@@ -67,7 +67,7 @@
             android:directBootAware="true"
             android:canDisplayOnRemoteDevices="true"
             android:supportsPictureInPicture="true"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"
             android:theme="@style/Theme.FocusFlow">
             <meta-data android:name="com.samsung.android.multidisplay.keep_process_alive" android:value="true" />
             <meta-data android:name="com.samsung.android.multidisplay.show_in_cover_screen" android:value="true" />

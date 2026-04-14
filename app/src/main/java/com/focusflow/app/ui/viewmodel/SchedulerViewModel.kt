@@ -455,10 +455,19 @@ class SchedulerViewModel(
                 }
             } else if (taskId != null) {
                 repository.updateTaskCompletion(taskId, true)
+                // [v1.8.0] 현재 로드된 오늘 작업 리스트에서도 즉시 체크 표시 반영
+                _uiState.update { currentState ->
+                    val updatedTasks = currentState.tasks.map { 
+                        if (it.id == taskId) it.copy(isCompleted = true) else it 
+                    }
+                    currentState.copy(tasks = updatedTasks)
+                }
             }
             
-            // 타이머 중지 및 상태 초기화 (기본 설정값으로 복구)
-            timerService?.stopTimer()
+            // [v1.8.0-fix] 세션 종료 시 즉시 stopTimer를 호출하면 알람 소리/진동이 즉시 정지되는 버그가 있어,
+            // 서비스 종료 및 알람 정지 처리는 AlarmActivity의 '중단' 버튼 클릭이나 20초 타임아웃 시점으로 위임합니다.
+            // timerService?.stopTimer()
+
             _uiState.update { currentState ->
                 val defTotalSec = currentState.defaultTotalMinutes * 60
                 val defIntervalSec = currentState.storedAlarmIntervalMinutes * 60
@@ -509,16 +518,37 @@ class SchedulerViewModel(
                     selectionAnchor = null
                 )
             } else {
-                // 범위 선택: 앵커와 현재 터치 지점 사이의 모든 블록 선택
-                val start = minOf(anchor, blockTime)
-                val end = maxOf(anchor, blockTime)
-                val intervalMillis = 15 * 60 * 1000L // 타임라인 블록 기준인 15분 단위
+                // 범위 선택: 앵커와 현재 터치 지점 사이의 블록 선택
+                // [v1.8.0] 장애물(기존 일정)이 있으면 그 전까지만 선택되도록 개선
+                val intervalMillis = 15 * 60 * 1000L
+                val isForward = blockTime > anchor
                 
                 val newSelected = mutableSetOf<Long>()
-                var current = start
-                while (current <= end) {
-                    newSelected.add(current)
-                    current += intervalMillis
+                
+                if (isForward) {
+                    var current = anchor
+                    while (current <= blockTime) {
+                        val isOverlapping = state.dailySchedules.any { s ->
+                            val sStart = s.startTimeMillis
+                            val sEnd = sStart + s.durationMinutes * 60 * 1000L
+                            current >= sStart && current < sEnd
+                        }
+                        if (isOverlapping && current != anchor) break // 앵커 제외 장애물 발견 시 중단
+                        newSelected.add(current)
+                        current += intervalMillis
+                    }
+                } else {
+                    var current = anchor
+                    while (current >= blockTime) {
+                        val isOverlapping = state.dailySchedules.any { s ->
+                            val sStart = s.startTimeMillis
+                            val sEnd = sStart + s.durationMinutes * 60 * 1000L
+                            current >= sStart && current < sEnd
+                        }
+                        if (isOverlapping && current != anchor) break
+                        newSelected.add(current)
+                        current -= intervalMillis
+                    }
                 }
                 
                 state.copy(
@@ -644,10 +674,10 @@ class SchedulerViewModel(
             if (!state.isTimerActive) {
                 val selectedTask = state.tasks.find { it.id == state.selectedTaskId }
                 
-                // [v1.7.6-patch] 안내 문구("작업을 선택하세요")인 경우 "독립 세션"으로 치환하여 시작
+                // [v1.8.0] 안내 문구("작업을 선택하세요")인 경우 "집중 세션"으로 치환하여 시작
                 val currentTitle = state.selectedTaskTitle
                 val finalTitle = if (currentTitle == "작업을 선택하세요" || currentTitle == null) {
-                    selectedTask?.title ?: "독립 세션"
+                    selectedTask?.title ?: "집중 세션"
                 } else {
                     currentTitle
                 }

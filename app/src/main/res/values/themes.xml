@@ -1,4 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.FocusFlow" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- [v1.8.0] 시스템 기본 테마를 사용하여 빌드 오류를 원천 차단 -->
+    <style name="Theme.FocusFlow" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowTranslucentStatus">false</item>
+        <item name="android:windowTranslucentNavigation">false</item>
+    </style>
+
+    <!-- 스플래시 화면 테마: 기본 ic_launcher 사용으로 안전성 확보 -->
+    <style name="Theme.FocusFlow.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#0F172A</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/Theme.FocusFlow</item>
+    </style>
 </resources>

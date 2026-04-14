@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -27,6 +29,9 @@ import androidx.compose.ui.unit.sp
 import android.content.Intent
 import com.focusflow.app.service.TimerService
 import com.focusflow.app.util.NotificationHelper
+
+import com.focusflow.app.ui.theme.FocusFlowTheme
+import androidx.compose.foundation.isSystemInDarkTheme
 
 class AlarmActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,25 +51,28 @@ class AlarmActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         
         val notificationHelper = NotificationHelper.getInstance(this)
-        val taskTitle = intent.getStringExtra("taskTitle") ?: "독립 세션"
+        val taskTitle = intent.getStringExtra("taskTitle") ?: "집중 세션"
         val message = intent.getStringExtra("message") ?: "구간이 전환되었습니다."
         val isFinished = intent.getBooleanExtra("isFinished", false)
 
         setContent {
-            AlarmScreen(
-                taskTitle = taskTitle,
-                message = message,
-                isFinished = isFinished,
-                onDismiss = {
-                    notificationHelper.stopAllAlerts()
-                    val stopIntent = Intent(this@AlarmActivity, TimerService::class.java).apply {
-                        putExtra("stop_alarm", true)
-                        putExtra("isFinished", isFinished)
+            val isDark = isSystemInDarkTheme()
+            FocusFlowTheme(darkTheme = isDark, dynamicColor = false) {
+                AlarmScreen(
+                    taskTitle = taskTitle,
+                    message = message,
+                    isFinished = isFinished,
+                    onDismiss = {
+                        notificationHelper.stopAllAlerts()
+                        val stopIntent = Intent(this@AlarmActivity, TimerService::class.java).apply {
+                            putExtra("stop_alarm", true)
+                            putExtra("isFinished", isFinished)
+                        }
+                        startService(stopIntent)
+                        finish()
                     }
-                    startService(stopIntent)
-                    finish()
-                }
-            )
+                )
+            }
         }
 
         lifecycleScope.launch {
@@ -120,9 +128,17 @@ fun AlarmScreen(
     isFinished: Boolean = false,
     onDismiss: () -> Unit
 ) {
+    // [v1.8.0] 시스템 테마와 독립적인 "Midnight Blue" 고정 디자인 적용
+    // 낮과 밤 모두 눈이 편안하고 브랜드 정체성(Blue/Yellow)을 가장 잘 드러냄
+    val backgroundColor = Color(0xFF0F172A) // Slate 900 (Deep Navy)
+    val textColor = Color.White
+    val subTextColor = Color.White.copy(alpha = 0.7f)
+    val primaryBrandColor = Color(0xFF38BDF8) // Sky Blue
+    val tertiaryBrandColor = Color(0xFFFACC15) // Yellow
+
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = Color(0xFF001B3D) // 깊은 네이비 (001B3D)
+        color = backgroundColor
     ) {
         Column(
             modifier = Modifier
@@ -131,68 +147,82 @@ fun AlarmScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // 상단 앱 브랜딩 (이 앱에서 보낸 알람임을 명시)
-            Column(
-                modifier = Modifier.padding(top = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Notifications,
-                    contentDescription = null,
-                    tint = Color(0xFF6CDBAC), // 좀 더 편안한 민트/그린색으로 변경
-                    modifier = Modifier.size(32.dp)
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "FOCUS FLOW",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color.White.copy(alpha = 0.6f),
-                    letterSpacing = 2.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            // Header
+            Text(
+                text = "FOCUS FLOW",
+                style = MaterialTheme.typography.labelLarge,
+                color = primaryBrandColor,
+                letterSpacing = 2.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 24.dp)
+            )
 
-            // 중앙 알람 메시지
+            // Central Status Icon
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                val isRest = message.contains("휴식") || message.contains("REST")
+                val statusColor = if (isRest) tertiaryBrandColor else primaryBrandColor
+                
+                Surface(
+                    shape = CircleShape,
+                    color = statusColor.copy(alpha = 0.15f),
+                    modifier = Modifier.size(140.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (isRest) Icons.Default.Coffee else Icons.Default.Timer,
+                            contentDescription = null,
+                            tint = statusColor,
+                            modifier = Modifier.size(56.dp)
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(48.dp))
+                
                 Text(
                     text = taskTitle,
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White,
+                    style = MaterialTheme.typography.displaySmall.copy(
+                        fontWeight = FontWeight.Light,
+                        letterSpacing = (-1).sp
+                    ),
+                    color = textColor,
                     textAlign = TextAlign.Center
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
                 Text(
                     text = message,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = Color.White.copy(alpha = 0.9f),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = subTextColor,
                     textAlign = TextAlign.Center
                 )
             }
 
-            // 큰 중단 버튼 (갤럭시 알람 스타일)
-            Button(
-                onClick = onDismiss,
+            // Dismiss Button
+            Box(
                 modifier = Modifier
-                    .size(120.dp),
-                shape = CircleShape,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = Color.White
-                ),
-                elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp)
+                    .fillMaxWidth()
+                    .padding(bottom = 48.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Button(
+                    onClick = onDismiss,
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFEF4444), // Red 500
+                        contentColor = Color.White
+                    ),
+                    modifier = Modifier.size(80.dp),
+                    contentPadding = PaddingValues(0.dp)
+                ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "알람 중단",
+                        contentDescription = "중단",
                         modifier = Modifier.size(40.dp)
                     )
-                    Text("중단", fontWeight = FontWeight.Bold)
                 }
             }
-            
-            Spacer(modifier = Modifier.height(48.dp))
         }
     }
 }

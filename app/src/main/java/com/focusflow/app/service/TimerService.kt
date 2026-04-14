@@ -103,8 +103,9 @@ class TimerService : Service() {
                     // 최종 종료 알람이었으면 서비스 전체 종료
                     stopTimer()
                 } else {
+                    // [v1.8.0-fix] 알림 액션 버튼 등으로 중단 시 소리/진동 정지 보장
+                    NotificationHelper.getInstance(this).stopAllAlerts()
                     // 구간 전환 알람이었으면 소리만 끄고 타이머는 그대로 둠
-                    // (소리 정지는 이미 NotificationHelper.stopAllAlerts()에서 수행됨)
                     // 만약 화면이 꺼져있을 때 타이머가 멈추지 않도록 다시 한번 보장
                     if (_isRunning.value && timerJob?.isActive != true) {
                         startDisplayUpdateLoop()
@@ -158,6 +159,7 @@ class TimerService : Service() {
     }
 
     fun startTimer(initialTotalRemaining: Int) {
+        delayedFinishJob?.cancel() // [v1.8.0-fix] 이전 종료 알람 대기 작업이 있다면 취소
         stopAllAlarms(false)
         timerJob?.cancel()
         _isRunning.value = true
@@ -233,15 +235,15 @@ class TimerService : Service() {
             val transitioningTo = if (restSeconds > 0 && (sessionElapsedSeconds % cycleSeconds) >= focusSeconds) BlockType.REST else BlockType.FOCUS
             
             val isDefault = taskTitle.isEmpty()
-            val displayTitle = if (isDefault) "독립 세션" else taskTitle
+            val displayTitle = if (isDefault) "집중 세션" else taskTitle
             
             val statusTitle = when {
                 transitioningTo == BlockType.REST -> "$displayTitle: 휴식 시작"
-                newBlockIndex >= 2 && restSeconds <= 0 -> "$displayTitle: 몰입"
-                else -> "$displayTitle: 몰입 시작"
+                newBlockIndex >= 2 && restSeconds <= 0 -> "$displayTitle: 집중"
+                else -> "$displayTitle: 집중 시작"
             }
             
-            updateForegroundNotification(if(transitioningTo == BlockType.REST) "$displayTitle: 휴식 중" else "$displayTitle: 몰입 중")
+            updateForegroundNotification(if(transitioningTo == BlockType.REST) "$displayTitle: 휴식 중" else "$displayTitle: 집중 중")
             onTransition?.invoke(statusTitle, (sessionElapsedSeconds / 60), false, transitioningTo, isManualSkip)
 
             // [v1.7.6-fix] 구간 전환 알람이 울린 직후, 다음 구간 알람을 예약합니다.
@@ -259,7 +261,8 @@ class TimerService : Service() {
         _isRunning.value = false
         // isServiceRunning은 stopTimer에서만 false로 변경하여 UI 일관성 유지
         
-        val displayTitle = taskTitle.ifEmpty { "독립 세션" }
+        val displayTitle = taskTitle.ifEmpty { "집중 세션" }
+        updateForegroundNotification("$displayTitle: 종료")
         onTransition?.invoke("$displayTitle: 종료", totalSecondsAtStart / 60, true, BlockType.FOCUS, false)
         onFinished?.invoke()
         
@@ -319,11 +322,11 @@ class TimerService : Service() {
         }
         val isFullScreenMode = (currentSoundId == "ringtone") || useFullScreenAlarm
         
-        val displayTitle = taskTitle.ifEmpty { "독립 세션" }
+        val displayTitle = taskTitle.ifEmpty { "집중 세션" }
         val statusTitle = when {
             isFinalFinish -> "$displayTitle: 종료"
             transitioningTo == BlockType.REST -> "$displayTitle: 휴식 시작"
-            else -> "$displayTitle: 몰입 시작"
+            else -> "$displayTitle: 집중 시작"
         }
 
         val intent = Intent(this, TimerAlarmReceiver::class.java).apply {
@@ -363,15 +366,17 @@ class TimerService : Service() {
     }
 
     fun pauseTimer() {
+        delayedFinishJob?.cancel()
         stopAllAlarms(false)
         timerJob?.cancel()
         _isRunning.value = false
         if (wakeLock?.isHeld == true) wakeLock?.release()
-        val displayTitle = taskTitle.ifEmpty { "독립 세션" }
+        val displayTitle = taskTitle.ifEmpty { "집중 세션" }
         updateForegroundNotification("$displayTitle: 일시정지됨")
     }
 
     fun skipToNext() {
+        delayedFinishJob?.cancel()
         val focusSeconds = alarmIntervalMinutes * 60
         val restSeconds = restMinutes * 60
         val cycleSeconds = focusSeconds + restSeconds

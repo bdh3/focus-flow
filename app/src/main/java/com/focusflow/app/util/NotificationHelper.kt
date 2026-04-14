@@ -70,7 +70,7 @@ class NotificationHelper private constructor(private val context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val alarmChannel = NotificationChannel(
                 ALARM_HIGH_CHANNEL_ID,
-                "몰입 알람 (전체화면 및 팝업)",
+                "집중 알람 (전체화면 및 팝업)",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "구간 전환 및 종료 시 알람을 표시합니다."
@@ -193,7 +193,7 @@ class NotificationHelper private constructor(private val context: Context) {
             .setContentIntent(pendingIntent)
             .addAction(R.drawable.ic_launcher_foreground, "알람 중단", stopPendingIntent) // 액션 버튼 추가
             .setAutoCancel(true)
-            .setOngoing(forceFullScreen && !isFinished)
+            .setOngoing(forceFullScreen)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setLocalOnly(true)
             .setWhen(System.currentTimeMillis()) 

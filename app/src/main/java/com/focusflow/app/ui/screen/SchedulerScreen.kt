@@ -6,21 +6,31 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.focusflow.app.model.Task
 import com.focusflow.app.model.TimeBlock
 import com.focusflow.app.util.BlockType
@@ -32,188 +42,157 @@ import java.util.Locale
 @Composable
 fun SchedulerScreen(viewModel: SchedulerViewModel, onNavigateToCalendar: () -> Unit) {
     val uiState by viewModel.uiState.collectAsState()
+    var isTaskListVisible by remember { mutableStateOf(false) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Focus Flow") }
-            )
-        }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(bottom = 32.dp)
-        ) {
-            item {
-                val totalSeconds = uiState.timeBlocks.sumOf { it.durationMinutes * 60L }.toInt()
-                val progress = if (totalSeconds > 0) uiState.totalRemainingSeconds.toFloat() / totalSeconds else 0f
-                val currentBlock = uiState.timeBlocks.getOrNull(uiState.currentBlockIndex)
-
-                TimerHeader(
-                    totalRemainingSeconds = uiState.totalRemainingSeconds,
-                    remainingSeconds = uiState.remainingSeconds,
-                    isRunning = uiState.isRunning,
-                    isTimerActive = uiState.isTimerActive,
-                    progress = progress,
-                    blockType = currentBlock?.type ?: BlockType.FOCUS,
-                    selectedTaskTitle = uiState.selectedTaskTitle,
-                    onToggleTimer = { viewModel.toggleTimer() },
-                    onStopTimer = { viewModel.stopTimer() },
-                    onSkip = { viewModel.skipBlock() },
-                    selectedTaskId = uiState.selectedTaskId,
-                    sessionTotalMinutes = uiState.sessionTotalMinutes
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Focus Flow") }
                 )
             }
-
-            item {
-                Column(modifier = Modifier.padding(vertical = 8.dp)) {
-                    Text(
-                        text = "현재 세션 흐름",
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
-                    )
-                    
-                    Row(
-                        modifier = Modifier.fillMaxWidth().height(8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        uiState.timeBlocks.forEachIndexed { index, block ->
-                            Box(
-                                modifier = Modifier
-                                    .weight(block.durationMinutes.toFloat())
-                                    .fillMaxHeight()
-                                    .background(
-                                        color = when {
-                                            index < uiState.currentBlockIndex -> MaterialTheme.colorScheme.outlineVariant
-                                            index == uiState.currentBlockIndex -> {
-                                                if (block.type == BlockType.FOCUS) MaterialTheme.colorScheme.primary 
-                                                else MaterialTheme.colorScheme.tertiary
-                                            }
-                                            block.type == BlockType.FOCUS -> MaterialTheme.colorScheme.primaryContainer
-                                            else -> MaterialTheme.colorScheme.tertiaryContainer
-                                        },
-                                        shape = MaterialTheme.shapes.extraSmall
-                                    )
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (!uiState.isRunning) {
+        ) { padding ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(horizontal = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 32.dp)
+            ) {
                 item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    val totalSeconds = uiState.timeBlocks.sumOf { it.durationMinutes * 60L }.toInt()
+                    val progress = if (totalSeconds > 0) uiState.totalRemainingSeconds.toFloat() / totalSeconds else 0f
+                    val currentBlock = uiState.timeBlocks.getOrNull(uiState.currentBlockIndex)
+
+                    TimerHeader(
+                        totalRemainingSeconds = uiState.totalRemainingSeconds,
+                        remainingSeconds = uiState.remainingSeconds,
+                        isRunning = uiState.isRunning,
+                        isTimerActive = uiState.isTimerActive,
+                        progress = progress,
+                        blockType = currentBlock?.type ?: BlockType.FOCUS,
+                        selectedTaskTitle = uiState.selectedTaskTitle,
+                        onToggleTimer = { viewModel.toggleTimer() },
+                        onStopTimer = { viewModel.stopTimer() },
+                        onSkip = { viewModel.skipBlock() },
+                        selectedTaskId = uiState.selectedTaskId,
+                        sessionTotalMinutes = uiState.sessionTotalMinutes,
+                        onSelectTaskClick = { isTaskListVisible = true },
+                        onCancelTask = { viewModel.selectTask(null) }
+                    )
+                }
+
+                item {
+                    Column(modifier = Modifier.padding(vertical = 8.dp)) {
                         Text(
-                            text = "오늘 작업 리스트",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            text = "현재 세션 흐름",
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
                         )
                         
-                        TextButton(onClick = {
-                            viewModel.selectDate(System.currentTimeMillis())
-                            onNavigateToCalendar()
-                        }) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("추가")
+                        Row(
+                            modifier = Modifier.fillMaxWidth().height(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            uiState.timeBlocks.forEachIndexed { index, block ->
+                                Box(
+                                    modifier = Modifier
+                                        .weight(block.durationMinutes.toFloat())
+                                        .fillMaxHeight()
+                                        .background(
+                                            color = when {
+                                                index < uiState.currentBlockIndex -> MaterialTheme.colorScheme.outlineVariant
+                                                index == uiState.currentBlockIndex -> {
+                                                    if (block.type == BlockType.FOCUS) MaterialTheme.colorScheme.primary 
+                                                    else MaterialTheme.colorScheme.tertiary
+                                                }
+                                                block.type == BlockType.FOCUS -> MaterialTheme.colorScheme.primaryContainer
+                                                else -> MaterialTheme.colorScheme.tertiaryContainer
+                                            },
+                                            shape = MaterialTheme.shapes.extraSmall
+                                        )
+                                )
+                            }
                         }
                     }
                 }
-            } else {
-                item {
-                    Text(
-                        text = "현재 진행 중인 작업",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                    )
-                }
-                
-                // [v1.7.3-patch1] 작업을 선택하지 않고 "독립 세션"으로 시작한 경우 가상 아이템 표시
-                if (uiState.isRunning && uiState.selectedTaskId == null) {
-                    item {
-                        TaskItem(
-                            task = Task(
-                                id = "independent_focus",
-                                title = "독립 세션",
-                                durationMinutes = uiState.sessionTotalMinutes,
-                                isCompleted = false
-                            ),
-                            isSelected = true,
-                            onSelect = {},
-                            onToggle = {},
-                            onDelete = {}
-                        )
-                    }
-                }
             }
+        }
 
-            val tasksToShow = uiState.tasks
-
-            if (tasksToShow.isEmpty()) {
-                item {
-                    Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "오늘 추가된 작업이 없습니다.\n상단의 '추가' 버튼을 눌러 등록하세요.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.outline,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                    }
-                }
-            }
-
-            items(tasksToShow, key = { it.id }) { task ->
-                val isSelected = uiState.selectedTaskId == task.id
-                var showDeleteDialog by remember { mutableStateOf(false) }
-
-                if (showDeleteDialog) {
-                    AlertDialog(
-                        onDismissRequest = { showDeleteDialog = false },
-                        title = { Text("작업 삭제") },
-                        text = { Text("'${task.title}' 작업을 삭제하시겠습니까? 캘린더에 등록된 일정도 함께 삭제됩니다.") },
-                        confirmButton = {
-                            TextButton(
-                                onClick = {
-                                    viewModel.deleteTask(task)
-                                    showDeleteDialog = false
+        // [v1.8.0] Task Selection Dialog (Overlay Layer)
+        if (isTaskListVisible && !uiState.isRunning) {
+            Dialog(
+                onDismissRequest = { isTaskListVisible = false },
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .fillMaxHeight(0.6f),
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 6.dp
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "오늘 작업 리스트",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            IconButton(onClick = { isTaskListVisible = false }) {
+                                Icon(Icons.Default.Close, contentDescription = "닫기")
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        if (uiState.tasks.isEmpty()) {
+                            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        text = "오늘 추가된 작업이 없습니다.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                    TextButton(onClick = {
+                                        isTaskListVisible = false
+                                        viewModel.selectDate(System.currentTimeMillis())
+                                        onNavigateToCalendar()
+                                    }) {
+                                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("작업 추가하기")
+                                    }
                                 }
-                            ) { Text("삭제", color = MaterialTheme.colorScheme.error) }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showDeleteDialog = false }) { Text("취소") }
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                items(uiState.tasks, key = { it.id }) { task ->
+                                    val isSelected = uiState.selectedTaskId == task.id
+                                    TaskItem(
+                                        task = task,
+                                        isSelected = isSelected,
+                                        onSelect = { 
+                                            viewModel.selectTask(task.id)
+                                            isTaskListVisible = false
+                                        },
+                                        onToggle = { viewModel.toggleTaskCompletion(task) },
+                                        onDelete = { viewModel.deleteTask(task) }
+                                    )
+                                }
+                            }
                         }
-                    )
-                }
-
-                if (uiState.isRunning) {
-                    if (isSelected) {
-                        TaskItem(
-                            task = task,
-                            isSelected = true,
-                            onSelect = {},
-                            onToggle = {},
-                            onDelete = {}
-                        )
                     }
-                } else {
-                    TaskItem(
-                        task = task,
-                        isSelected = isSelected,
-                        onSelect = { viewModel.selectTask(task.id) },
-                        onToggle = { viewModel.toggleTaskCompletion(task) },
-                        onDelete = { showDeleteDialog = true }
-                    )
                 }
             }
         }
@@ -233,7 +212,9 @@ fun TimerHeader(
     onStopTimer: () -> Unit,
     onSkip: () -> Unit,
     selectedTaskId: String?,
-    sessionTotalMinutes: Int
+    sessionTotalMinutes: Int,
+    onSelectTaskClick: () -> Unit,
+    onCancelTask: () -> Unit
 ) {
     val totalMin = totalRemainingSeconds / 60
     val totalSec = totalRemainingSeconds % 60
@@ -256,113 +237,142 @@ fun TimerHeader(
         String.format(Locale.getDefault(), "%02d:%02d", blockMins, blockSec)
     }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+        // [v1.8.0] Minimalist Task Selection
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier
+                .wrapContentSize()
+                .clip(MaterialTheme.shapes.small)
+                .clickable(enabled = !isRunning) { onSelectTaskClick() }
+                .padding(vertical = 4.dp, horizontal = 12.dp)
         ) {
             Text(
                 text = selectedTaskTitle ?: "작업을 선택하세요",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(bottom = 4.dp)
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+                color = if (selectedTaskId == null) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface
             )
             
-            Text(
-                text = if (isRunning || totalRemainingSeconds > 0) "현재 블록 $blockTimeText 남음" else "준비 완료",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-
-            Box(contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.size(220.dp),
-                    strokeWidth = 10.dp,
-                    color = if (blockType == BlockType.FOCUS) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                    strokeCap = StrokeCap.Round
-                )
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = timeText,
-                        style = if (timeText.length > 5) MaterialTheme.typography.displayMedium else MaterialTheme.typography.displayLarge,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1
-                    )
-                    Text(
-                        text = if (blockType == BlockType.FOCUS) "전체 남은 시간" else "휴식 중",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (blockType == BlockType.FOCUS) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.tertiary
-                    )
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(24.dp))
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // [v1.7.3] 세션이 실제로 활성화(시작됨) 되었을 때만 제어 버튼(중지, 넘기기) 표시
-                val isTaskSelected = selectedTaskTitle != null || isTimerActive
-
-                Button(
-                    onClick = onToggleTimer,
-                    modifier = Modifier.weight(if (isTaskSelected && isTimerActive) 1.2f else 1f),
-                    shape = MaterialTheme.shapes.medium,
-                    contentPadding = PaddingValues(horizontal = 4.dp)
+            if (selectedTaskId != null && !isRunning) {
+                Spacer(modifier = Modifier.width(6.dp))
+                Surface(
+                    onClick = onCancelTask,
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.size(18.dp)
                 ) {
-                    val totalSecs = sessionTotalMinutes * 60
-                    val isInitialState = (totalRemainingSeconds >= totalSecs || totalRemainingSeconds == 0) && !isRunning
-                    
                     Icon(
-                        if (isRunning) Icons.Default.Refresh else Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        when {
-                            isRunning -> "일시정지"
-                            !isTaskSelected || isInitialState -> "시작"
-                            isTimerActive -> "재개"
-                            else -> "시작"
-                        },
-                        maxLines = 1
+                        Icons.Default.Close,
+                        contentDescription = "선택 취소",
+                        modifier = Modifier.padding(3.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                
-                // 세션이 실제로 진행 중이거나 일시정지 상태일 때만 중지/넘기기 표시
-                if (isTimerActive) {
-                    Spacer(Modifier.width(8.dp))
-                    OutlinedButton(
-                        onClick = onStopTimer,
-                        modifier = Modifier.weight(0.7f),
-                        shape = MaterialTheme.shapes.medium,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        contentPadding = PaddingValues(horizontal = 4.dp)
-                    ) {
-                        Text("중지", maxLines = 1)
-                    }
+            } else if (!isRunning) {
+                Icon(
+                    Icons.Default.ArrowDropDown,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.outline
+                )
+            }
+        }
 
-                    if (isRunning) {
-                        Spacer(Modifier.width(8.dp))
-                        OutlinedButton(
-                            onClick = onSkip,
-                            modifier = Modifier.weight(0.8f),
-                            shape = MaterialTheme.shapes.medium,
-                            contentPadding = PaddingValues(horizontal = 4.dp)
-                        ) {
-                            Text(text = "넘기기", maxLines = 1)
-                        }
-                    }
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Main Timer Circle
+        Box(contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.size(240.dp),
+                strokeWidth = 8.dp,
+                color = if (blockType == BlockType.FOCUS) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                strokeCap = StrokeCap.Round
+            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = blockTimeText,
+                    style = MaterialTheme.typography.displayLarge.copy(
+                        fontWeight = FontWeight.Light,
+                        letterSpacing = (-2).sp
+                    ),
+                    maxLines = 1
+                )
+                Text(
+                    text = if (blockType == BlockType.FOCUS) "FOCUS" else "REST",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = if (blockType == BlockType.FOCUS) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Session Total Remaining (Subtle)
+        Text(
+            text = if (isRunning || totalRemainingSeconds > 0) "Total $timeText left" else "Ready",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // Modern Control Buttons
+        Row(
+            modifier = Modifier.fillMaxWidth(0.8f),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (isTimerActive) {
+                IconButton(
+                    onClick = onStopTimer,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Stop", tint = MaterialTheme.colorScheme.error)
                 }
+                Spacer(modifier = Modifier.width(24.dp))
+            }
+
+            FloatingActionButton(
+                onClick = onToggleTimer,
+                shape = CircleShape,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp),
+                modifier = Modifier.size(72.dp)
+            ) {
+                Icon(
+                    if (isRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(36.dp)
+                )
+            }
+
+            if (isRunning) {
+                Spacer(modifier = Modifier.width(24.dp))
+                IconButton(
+                    onClick = onSkip,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                ) {
+                    Icon(Icons.Default.SkipNext, contentDescription = "Skip")
+                }
+            } else if (isTimerActive) {
+                // Placeholder to keep play button centered
+                Spacer(modifier = Modifier.width(72.dp))
             }
         }
     }
