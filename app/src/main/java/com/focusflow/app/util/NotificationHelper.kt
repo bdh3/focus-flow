@@ -220,23 +220,23 @@ class NotificationHelper private constructor(private val context: Context) {
         val isScreenOn = pm.isInteractive
 
         if (forceFullScreen) {
+            // [v1.8.2-hotfix] 전체 화면 알람(FSI)은 반드시 HIGH 이상의 채널과 MAX 우선순위가 필요함
+            // 화면 켜짐 여부와 상관없이 FSI 권한을 확보하기 위해 채널과 우선순위를 ALARM_HIGH/MAX로 고정
+            builder.setChannelId(ALARM_HIGH_CHANNEL_ID)
+            builder.setPriority(NotificationCompat.PRIORITY_MAX)
+            builder.setCategory(NotificationCompat.CATEGORY_ALARM)
+            builder.setFullScreenIntent(fullScreenPendingIntent, true)
+            
             if (isScreenOn) {
-                // [v1.8.2-fix] 화면이 이미 켜져 있다면 직접 액티비티를 시작
-                // 배너 중첩 방지를 위해 중요도가 낮은(LOW) 서비스 채널로 우회하고 카테고리를 낮춤
-                builder.setChannelId(SILENT_SERVICE_CHANNEL_ID) 
-                builder.setPriority(NotificationCompat.PRIORITY_LOW)
-                builder.setCategory(NotificationCompat.CATEGORY_STATUS)
-                builder.setVibrate(longArrayOf(0)) 
-                builder.setFullScreenIntent(null, false)
+                // 화면이 이미 켜져 있는 경우, 배너(HUN)와 액티비티가 겹치는 혼란을 줄이기 위해
+                // 시스템에 '한 번만 알림'을 요청하고 직접 액티비티를 선제적으로 호출 시도
+                builder.setOnlyAlertOnce(true)
                 try {
                     context.startActivity(alarmActivityIntent)
-                } catch (e: Exception) { e.printStackTrace() }
-            } else {
-                // [v1.8.2-fix] 화면이 꺼져 있다면 시스템이 화면을 깨우도록 HIGH 채널과 MAX/ALARM 설정 유지
-                builder.setChannelId(ALARM_HIGH_CHANNEL_ID)
-                builder.setPriority(NotificationCompat.PRIORITY_MAX)
-                builder.setCategory(NotificationCompat.CATEGORY_ALARM)
-                builder.setFullScreenIntent(fullScreenPendingIntent, true)
+                } catch (e: Exception) {
+                    // startActivity 실패 시에도 FSI(fullScreenIntent)가 백업으로 작동함
+                    e.printStackTrace() 
+                }
             }
             
             // 알림 등록 (상태바 유지 및 중단 액션용)
