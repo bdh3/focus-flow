@@ -565,6 +565,9 @@ class SchedulerViewModel(
     }
 
     fun loadScheduledSession(schedule: ScheduleBlock) {
+        // 타이머 동작 중에는 세션 로드 차단 (데이터 박제)
+        if (_uiState.value.isTimerActive) return
+
         _uiState.update { it.copy(
             selectedTaskId = schedule.id, // [v1.7.6-patch] 스케줄 ID를 taskId로 활용하여 추적성 확보
             selectedTaskTitle = schedule.taskTitle,
@@ -622,7 +625,10 @@ class SchedulerViewModel(
             }
 
             if (startNewSession) {
-                loadScheduledSession(schedule)
+                // 타이머 동작 중이 아닐 때만 새 세션 로드
+                if (!_uiState.value.isTimerActive) {
+                    loadScheduledSession(schedule)
+                }
             }
         }
     }
@@ -696,6 +702,9 @@ class SchedulerViewModel(
     }
 
     fun selectTask(taskId: String?) {
+        // 타이머가 동작 중일 때는 작업을 변경할 수 없음 (데이터 박제 원칙)
+        if (_uiState.value.isTimerActive) return
+
         // 이미 선택된 작업을 다시 터치하면 선택 해제 (일반 모드로 복구)
         if (taskId != null && _uiState.value.selectedTaskId == taskId) {
             selectTask(null)
