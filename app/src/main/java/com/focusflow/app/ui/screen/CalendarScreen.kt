@@ -254,7 +254,7 @@ fun CalendarScreen(
                                         startTimeMinute = calendar.get(Calendar.MINUTE),
                                         startNewSession = false,
                                         intervalMinutes = uiState.storedAlarmIntervalMinutes,
-                                        restMinutes = 0 // 퀵바에서는 연속 집중 모드(휴식 0)를 기본값으로 함 (v1.8.0 핫픽스: storedRestMinutes 무시 방지)
+                                        restMinutes = uiState.storedRestMinutes // 설정된 휴식 시간을 사용 (v1.8.3-patch17)
                                     )
                                     viewModel.clearSelectedBlocks()
                                     quickTaskTitle = ""
